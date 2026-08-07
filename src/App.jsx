@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, Phone, PhoneOff, Send, ChevronRight, CheckCircle2, XCircle, Loader2, Clock, User, Award } from "lucide-react";
+import { Mic, Phone, PhoneOff, Send, ChevronRight, CheckCircle2, XCircle, Loader2, Clock, User, Award, Copy, Check, HelpCircle, Eye, EyeOff } from "lucide-react";
 
 /* ---------------------------------------------------------
    AFG AI APPOINTMENT-SETTING TRAINER — v1.0
@@ -181,6 +181,24 @@ export default function App() {
   const [agentList, setAgentList] = useState([]);
   const [agentListState, setAgentListState] = useState("loading"); // loading | ready | error
   const [selectedAgentCode, setSelectedAgentCode] = useState("");
+  const [accessPassword, setAccessPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [verifyState, setVerifyState] = useState("idle"); // idle | verifying | verified | invalid | error
+  const [verifyError, setVerifyError] = useState("");
+  const [copiedWhere, setCopiedWhere] = useState("");
+  const [showMicHelp, setShowMicHelp] = useState(false);
+
+  function copyText(text, where) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopiedWhere(where);
+        setTimeout(() => setCopiedWhere(""), 2000);
+      }).catch(() => {
+        setMicError("Couldn't copy automatically — please select and copy the text manually.");
+      });
+    }
+  }
+
   const [mode, setMode] = useState("Practice");
   const [language, setLanguage] = useState("English");
   const [starterId, setStarterId] = useState("CS-01");
@@ -242,6 +260,45 @@ export default function App() {
     const found = agentList.find((a) => a.code === code);
     setAgentCode(found ? found.code : "");
     setAgentName(found ? found.name : "");
+    setAccessPassword("");
+    setShowPassword(false);
+    setVerifyState("idle");
+  }
+
+  async function verifyAccessCode() {
+    if (!accessPassword.trim()) return;
+    setVerifyState("verifying");
+    setVerifyError("");
+    try {
+      const resp = await fetch("/api/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentCode, password: accessPassword.trim() }),
+      });
+      if (resp.status === 404) {
+        setVerifyError("The verification service isn't set up on this deployment yet (api/verify.js is missing). This is a setup issue, not a wrong code.");
+        setVerifyState("error");
+        return;
+      }
+      const rawText = await resp.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (e) {
+        setVerifyError("Server returned an unexpected response (HTTP " + resp.status + ").");
+        setVerifyState("error");
+        return;
+      }
+      if (!resp.ok) {
+        setVerifyError(data.error || "Server error (HTTP " + resp.status + ").");
+        setVerifyState("error");
+        return;
+      }
+      setVerifyState(data.valid ? "verified" : "invalid");
+    } catch (e) {
+      setVerifyError("Couldn't reach the server: " + e.message);
+      setVerifyState("error");
+    }
   }
 
   useEffect(() => {
@@ -267,37 +324,62 @@ export default function App() {
       setMicError("Voice input isn't supported in this browser. Please type instead.");
       return;
     }
-    try {
-      const rec = new SpeechRecognition();
-      rec.lang = language === "Tamil" ? "ta-MY" : language === "Bahasa Malaysia" ? "ms-MY" : "en-MY";
-      rec.interimResults = true;
-      rec.continuous = false;
-      rec.onresult = (e) => {
-        let transcript = "";
-        for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
-        setInput(transcript);
-      };
-      rec.onstart = () => setListening(true);
-      rec.onend = () => setListening(false);
-      rec.onerror = (e) => {
-        setListening(false);
-        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-          setMicError("Microphone access was blocked. Check your browser's site permissions for the microphone, or type instead.");
-        } else if (e.error === "no-speech") {
-          setMicError("Didn't catch that — tap the mic and try again.");
-        } else {
-          setMicError("Voice input hit an error (" + e.error + "). Please type instead.");
-        }
-      };
-      recognitionRef.current = rec;
-      rec.start();
-    } catch (err) {
-      setListening(false);
-      setMicError("Voice input couldn't start in this browser. This can happen when the app is embedded in a preview — try opening it in its own browser tab, or type instead.");
+    // Fully clean up any previous recognition instance before starting a new one.
+    // iOS Safari throws "aborted" errors on the 2nd+ attempt if the previous
+    // instance's audio session hasn't been fully released first.
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.abort();
+      } catch (e) {}
+      recognitionRef.current = null;
     }
+
+    const attemptStart = (isRetry) => {
+      try {
+        const rec = new SpeechRecognition();
+        rec.lang = language === "Tamil" ? "ta-MY" : language === "Bahasa Malaysia" ? "ms-MY" : "en-MY";
+        rec.interimResults = true;
+        rec.continuous = false;
+        rec.onresult = (e) => {
+          let transcript = "";
+          for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+          setInput(transcript);
+        };
+        rec.onstart = () => setListening(true);
+        rec.onend = () => setListening(false);
+        rec.onerror = (e) => {
+          setListening(false);
+          if (e.error === "aborted" && !isRetry) {
+            // Known iOS Safari quirk: silently retry once after a brief pause.
+            recognitionRef.current = null;
+            setTimeout(() => attemptStart(true), 350);
+            return;
+          }
+          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+            setMicError("Microphone access was blocked. Check your browser's site permissions for the microphone, or type instead.");
+          } else if (e.error === "no-speech") {
+            setMicError("Didn't catch that — tap the mic and try again.");
+          } else if (e.error === "aborted") {
+            setMicError("Voice input didn't start cleanly this time. Tap the mic again, or type instead.");
+          } else {
+            setMicError("Voice input hit an error (" + e.error + "). Please type instead.");
+          }
+        };
+        recognitionRef.current = rec;
+        rec.start();
+      } catch (err) {
+        setListening(false);
+        setMicError("Voice input couldn't start in this browser. Please type instead.");
+      }
+    };
+    attemptStart(false);
   }
   function stopMic() {
-    recognitionRef.current?.stop();
+    try {
+      recognitionRef.current?.abort();
+    } catch (e) {}
     setListening(false);
   }
 
@@ -391,6 +473,10 @@ Respond with ONLY valid JSON in this exact shape:
       alert("Please select your name from the approved agent list.");
       return;
     }
+    if (verifyState !== "verified") {
+      alert("Please enter and verify your access code first.");
+      return;
+    }
     const prospectPool = byDifficulty(PROSPECTS, difficulty);
     const p = pick(prospectPool);
     const objs = pickThreeObjections(difficulty);
@@ -402,6 +488,7 @@ Respond with ONLY valid JSON in this exact shape:
     setRoleplayEnded(false);
     setShowScript(true);
     setMicError("");
+    setShowMicHelp(false);
     setAssessment(null);
     setSubmitState("idle");
     setSubmitError("");
@@ -489,6 +576,41 @@ Respond with ONLY valid JSON in this exact shape:
                 <CheckCircle2 size={12} /> Verified against approved agent list
               </div>
             )}
+            {selectedAgentCode && (
+              <div className="mt-4">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 block">Access code</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input type={showPassword ? "text" : "password"} value={accessPassword}
+                      onChange={(e) => { setAccessPassword(e.target.value); setVerifyState("idle"); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") verifyAccessCode(); }}
+                      placeholder="Enter your access code"
+                      className="w-full bg-white border border-slate-300 rounded-lg pl-4 pr-11 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+                    <button type="button" onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <button onClick={verifyAccessCode} disabled={verifyState === "verifying" || !accessPassword.trim()}
+                    className="shrink-0 bg-slate-900 text-white font-medium rounded-lg px-4 disabled:opacity-40">
+                    {verifyState === "verifying" ? <Loader2 size={16} className="animate-spin" /> : "Verify"}
+                  </button>
+                </div>
+                {verifyState === "verified" && (
+                  <div className="mt-2 text-xs text-teal-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 size={12} /> Access code correct
+                  </div>
+                )}
+                {verifyState === "invalid" && (
+                  <div className="mt-2 text-xs text-red-600 font-medium">Incorrect access code. Please try again.</div>
+                )}
+                {verifyState === "error" && (
+                  <div className="mt-2 text-xs text-amber-700 font-medium bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2">
+                    Couldn't verify right now — this isn't a wrong code, it's a connection/setup issue: {verifyError}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <PillGroup label="Mode" value={mode} onChange={setMode} options={["Practice", "Ranked"]} />
@@ -506,19 +628,27 @@ Respond with ONLY valid JSON in this exact shape:
               ))}
             </div>
             <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 mb-2">Read this exactly to open the call — {starterId}</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-teal-700">Read this exactly to open the call — {starterId}</div>
+                <button onClick={() => copyText(starterText(STARTERS.find((s) => s.id === starterId), language), "setup")}
+                  className="shrink-0 flex items-center gap-1 text-xs font-medium text-teal-700 bg-white border border-teal-300 rounded-md px-2 py-1 hover:bg-teal-100">
+                  {copiedWhere === "setup" ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                </button>
+              </div>
               <p className="text-base text-slate-900 leading-relaxed">{starterText(STARTERS.find((s) => s.id === starterId), language)}</p>
             </div>
           </div>
         </div>
 
         <div className="px-6 pb-8 pt-4 sticky bottom-0 bg-white border-t border-slate-100">
-          <button onClick={startSession} disabled={!selectedAgentCode}
+          <button onClick={startSession} disabled={!selectedAgentCode || verifyState !== "verified"}
             className="w-full bg-slate-900 text-white font-semibold rounded-lg py-3.5 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-800">
             <Phone size={17} /> Start the call <ChevronRight size={17} />
           </button>
-          {!selectedAgentCode && agentListState === "ready" && agentList.length > 0 && (
-            <p className="text-center text-xs text-slate-400 mt-2.5">Select your name from the approved list to continue.</p>
+          {(!selectedAgentCode || verifyState !== "verified") && agentListState === "ready" && agentList.length > 0 && (
+            <p className="text-center text-xs text-slate-400 mt-2.5">
+              {!selectedAgentCode ? "Select your name from the approved list to continue." : "Enter and verify your access code to continue."}
+            </p>
           )}
         </div>
       </div>
@@ -552,6 +682,10 @@ Respond with ONLY valid JSON in this exact shape:
               <button onClick={() => setShowScript(false)} className="absolute top-2.5 right-3 text-teal-700 text-xs font-medium">Hide</button>
               <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 mb-1.5 pr-10">{starterId} — your script</div>
               <p className="text-sm text-slate-900 leading-relaxed pr-2">{starterText(STARTERS.find((s) => s.id === starterId), language)}</p>
+              <button onClick={() => copyText(starterText(STARTERS.find((s) => s.id === starterId), language), "roleplay")}
+                className="mt-2 flex items-center gap-1 text-xs font-medium text-teal-700 bg-white border border-teal-300 rounded-md px-2 py-1 hover:bg-teal-100">
+                {copiedWhere === "roleplay" ? <><Check size={12} /> Copied — paste it below</> : <><Copy size={12} /> Copy script</>}
+              </button>
             </div>
           )}
           {!showScript && (
@@ -591,7 +725,31 @@ Respond with ONLY valid JSON in this exact shape:
           <div className="px-4 py-4 border-t border-slate-100 bg-white">
             {micError && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2.5 text-xs text-amber-800">
-                {micError}
+                <div className="flex items-start justify-between gap-2">
+                  <span>{micError}</span>
+                  <button onClick={() => setShowMicHelp((v) => !v)}
+                    className="shrink-0 flex items-center gap-1 font-medium underline whitespace-nowrap">
+                    <HelpCircle size={12} /> {showMicHelp ? "Hide help" : "How do I fix this?"}
+                  </button>
+                </div>
+                {showMicHelp && (
+                  <div className="mt-2.5 pt-2.5 border-t border-amber-200 space-y-3 text-amber-900">
+                    <div>
+                      <div className="font-semibold">On iPhone or iPad (Safari)</div>
+                      <div>1. Tap the "aA" icon in the address bar → Website Settings → set Microphone to Allow, then reload this page.</div>
+                      <div>2. Still stuck? Open the Settings app → Safari → Microphone → set to Ask (not Deny), then reload.</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">On Android (Chrome)</div>
+                      <div>1. Tap the lock/info icon to the left of the address bar → Permissions → Microphone → set to Allow, then reload this page.</div>
+                      <div>2. Still stuck? Open Chrome's Settings → Site settings → Microphone → make sure this site isn't blocked.</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">If it still doesn't work</div>
+                      <div>Tap the mic button once more — it retries automatically. Otherwise, use the "Copy script" button above and paste it in, or use your keyboard's own built-in dictation button (the microphone icon on your phone's keyboard itself, not this app's) instead.</div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <div className="flex items-end gap-2">
