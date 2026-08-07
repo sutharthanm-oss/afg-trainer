@@ -221,6 +221,7 @@ export default function App() {
   const [submitError, setSubmitError] = useState("");
 
   const recognitionRef = useRef(null);
+  const micTimeoutRef = useRef(null);
   const timerRef = useRef(null);
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -342,14 +343,27 @@ export default function App() {
         rec.lang = language === "Tamil" ? "ta-MY" : language === "Bahasa Malaysia" ? "ms-MY" : "en-MY";
         rec.interimResults = true;
         rec.continuous = false;
+
+        const clearHangTimer = () => {
+          if (micTimeoutRef.current) {
+            clearTimeout(micTimeoutRef.current);
+            micTimeoutRef.current = null;
+          }
+        };
+
         rec.onresult = (e) => {
+          clearHangTimer();
           let transcript = "";
           for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
           setInput(transcript);
         };
         rec.onstart = () => setListening(true);
-        rec.onend = () => setListening(false);
+        rec.onend = () => {
+          clearHangTimer();
+          setListening(false);
+        };
         rec.onerror = (e) => {
+          clearHangTimer();
           setListening(false);
           if (e.error === "aborted" && !isRetry) {
             // Known iOS Safari quirk: silently retry once after a brief pause.
@@ -369,6 +383,16 @@ export default function App() {
         };
         recognitionRef.current = rec;
         rec.start();
+
+        // Safety net: iOS Safari can silently hang on repeat mic uses — no result,
+        // no error, no end event, ever. If nothing happens within 10 seconds,
+        // force it to stop and tell the person plainly, instead of leaving the
+        // mic looking "listening" forever with no way out.
+        micTimeoutRef.current = setTimeout(() => {
+          try { rec.abort(); } catch (e) {}
+          setListening(false);
+          setMicError("Voice input stalled and didn't capture anything — this is a known iOS Safari issue with repeated mic use, not something wrong on your end. Please use the \"Copy script\" button, your keyboard's own dictation button, or type instead.");
+        }, 10000);
       } catch (err) {
         setListening(false);
         setMicError("Voice input couldn't start in this browser. Please type instead.");
@@ -377,6 +401,10 @@ export default function App() {
     attemptStart(false);
   }
   function stopMic() {
+    if (micTimeoutRef.current) {
+      clearTimeout(micTimeoutRef.current);
+      micTimeoutRef.current = null;
+    }
     try {
       recognitionRef.current?.abort();
     } catch (e) {}
