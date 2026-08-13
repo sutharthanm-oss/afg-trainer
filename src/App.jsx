@@ -373,9 +373,9 @@ export default function App() {
     if (screen === "roleplay" && !roleplayEnded) {
       timerRef.current = setInterval(() => {
         setSeconds((s) => {
-          if (s >= 299) {
+          if (s >= 899) {
             clearInterval(timerRef.current);
-            endRoleplay("Five-minute time limit reached.");
+            endRoleplay("15-minute time limit reached.");
             return s;
           }
           return s + 1;
