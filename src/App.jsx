@@ -119,6 +119,8 @@ export default function App() {
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentAccessCode, setNewAgentAccessCode] = useState("");
   const [adminActionState, setAdminActionState] = useState("idle"); // idle | saving | done | error
+  const [flaggedTechniques, setFlaggedTechniques] = useState([]);
+  const [flagsLoading, setFlagsLoading] = useState(false);
   const [agentName, setAgentName] = useState("");
   const [agentCode, setAgentCode] = useState("");
   const [agentList, setAgentList] = useState([]);
@@ -246,11 +248,38 @@ export default function App() {
       setAdminAgents(data.agents || []);
       setAdminAuthed(true);
       setAdminAuthState("idle");
+      loadFlaggedTechniques(secret);
     } catch (e) {
       setAdminAuthState("error");
       setAdminError(e.message);
     } finally {
       setAdminLoading(false);
+    }
+  }
+
+  async function loadFlaggedTechniques(secret) {
+    setFlagsLoading(true);
+    try {
+      const resp = await fetch("/api/flagged-techniques", { headers: { "x-admin-secret": secret } });
+      const data = await resp.json();
+      if (resp.ok) setFlaggedTechniques(data.flags || []);
+    } catch (e) {
+      // Non-critical — Admin panel still works without this list loading.
+    } finally {
+      setFlagsLoading(false);
+    }
+  }
+
+  async function reviewFlag(flagId, status) {
+    try {
+      await fetch("/api/flagged-techniques", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-secret": adminSecretInput.trim() },
+        body: JSON.stringify({ id: flagId, status, reviewedBy: "Admin" }),
+      });
+      setFlaggedTechniques((prev) => prev.filter((f) => f.id !== flagId));
+    } catch (e) {
+      // Silent — the item will just still appear next load if this failed.
     }
   }
 
@@ -550,7 +579,9 @@ Conversation starter used (${language}): "${starterText(starter, language)}"
 End reason: ${endReason}
 
 Respond with ONLY valid JSON in this exact shape:
-{"communication":0,"objection_handling":0,"appointment_closing":0,"listening":0,"questioning":0,"confidence_tone":0,"script_intent":0,"overall":0,"pass_status":"Pass or Retry","appointment_outcome":"Secured or Not Secured","compliance_result":"Pass or Fail","compliance_issue":"","ai_confidence":0,"one_biggest_mistake":"","highest_impact_improvement":"","strongest_sentence":"","strongest_question":"","better_response":"","better_close":"","full_report":""}`;
+{"communication":0,"objection_handling":0,"appointment_closing":0,"listening":0,"questioning":0,"confidence_tone":0,"script_intent":0,"overall":0,"pass_status":"Pass or Retry","appointment_outcome":"Secured or Not Secured","compliance_result":"Pass or Fail","compliance_issue":"","ai_confidence":0,"one_biggest_mistake":"","highest_impact_improvement":"","strongest_sentence":"","strongest_question":"","better_response":"","better_close":"","full_report":"","flagged_technique":"","flagged_technique_reason":""}
+
+If the agent used an effective technique that is NOT part of the approved objection library or standard script (per AI Constitution Article 24), briefly describe it in flagged_technique and explain why it worked in flagged_technique_reason. Leave both as empty strings if nothing notable falls outside the approved library. This flag is for Admin review only — it does not affect the score.`;
 
     try {
       const raw = await callClaude([{ role: "user", content: `TRANSCRIPT:\n${transcript}\n\nProduce the assessment JSON now.` }], system, 1500);
@@ -891,6 +922,37 @@ Respond with ONLY valid JSON in this exact shape:
                         className={`text-xs font-medium px-3 py-1.5 rounded-full ${a.status === "Active" ? "bg-red-50 text-red-600 border border-red-200" : "bg-teal-50 text-teal-700 border border-teal-200"}`}>
                         {a.status === "Active" ? "Suspend" : "Activate"}
                       </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">
+                Flagged Techniques for Review {flaggedTechniques.length > 0 && `(${flaggedTechniques.length})`}
+              </h2>
+              {flagsLoading ? (
+                <div className="text-sm text-slate-400">Loading…</div>
+              ) : flaggedTechniques.length === 0 ? (
+                <div className="text-sm text-slate-400">No techniques awaiting review right now.</div>
+              ) : (
+                <div className="space-y-3">
+                  {flaggedTechniques.map((f) => (
+                    <div key={f.id} className="border border-amber-200 bg-amber-50 rounded-lg p-4">
+                      <div className="text-xs text-slate-500 mb-1.5">Agent {f.agentCode} · Session {f.sessionId}</div>
+                      <div className="text-sm text-slate-900 font-medium mb-1.5">{f.technique}</div>
+                      {f.reason && <div className="text-sm text-slate-600 italic mb-3">{f.reason}</div>}
+                      <div className="flex gap-2">
+                        <button onClick={() => reviewFlag(f.id, "Approved")}
+                          className="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded-lg py-2">
+                          Approve — worth adding to the library
+                        </button>
+                        <button onClick={() => reviewFlag(f.id, "Rejected")}
+                          className="flex-1 bg-white border border-slate-300 text-slate-600 text-xs font-medium rounded-lg py-2">
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
