@@ -90,7 +90,22 @@ function extractJson(text) {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("No JSON found");
-  return JSON.parse(cleaned.slice(start, end + 1));
+  let candidate = cleaned.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch (e) {
+    // Real-world model output occasionally contains raw line breaks/tabs inside a string
+    // value, or a trailing comma — both invalid in strict JSON but easy to repair, since
+    // none of our fields legitimately need real newlines preserved.
+    const repaired = candidate
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/,\s*([}\]])/g, "$1");
+    try {
+      return JSON.parse(repaired);
+    } catch (e2) {
+      throw new Error("Unable to parse JSON string: " + e2.message);
+    }
+  }
 }
 
 function extractJsonArray(text) {
@@ -530,7 +545,7 @@ RULES:
 - Respond ONLY in character as the prospect, in ${language === "Manglish" ? "natural Manglish (mixed English/Malay)" : language}. Keep replies short and conversational (1-3 sentences), like real speech.
 - Increase resistance (become more guarded, short, skeptical) if the agent talks too much, interrupts, ignores your objection, pressures you, or contradicts themselves.
 - Decrease resistance (become warmer, more open) if the agent listens, acknowledges your concern, asks good questions, and communicates clearly.
-- Do not give an appointment easily. Require a specific date, time, platform/location, and your clear agreement before accepting.
+- Do not give an appointment easily. Require a specific date, time, a general location or platform (an exact venue name is not required — "a coffee shop near your office" or "a call on Zoom" is acceptable), and your clear agreement before accepting.
 - You may fully reject the appointment if the agent performs poorly or pressures you after you've declined.
 - Never coach the agent. Never break character. Never mention that you are an AI or that this is a simulation.
 
@@ -545,13 +560,25 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
     setMessages(newMessages);
     setInput("");
     setSending(true);
-    try {
-      const apiMessages = newMessages.map((m) => ({
-        role: m.role === "user" ? "user" : "assistant",
-        content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
-      }));
+    const apiMessages = newMessages.map((m) => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
+    }));
+
+    async function attempt() {
       const raw = await callClaude(apiMessages, buildRoleplaySystemPrompt(), 400);
-      const parsed = extractJson(raw);
+      return extractJson(raw);
+    }
+
+    try {
+      let parsed;
+      try {
+        parsed = await attempt();
+      } catch (firstErr) {
+        // A malformed JSON reply is usually a one-off glitch — silently retry once
+        // before ever bothering the agent with an error message.
+        parsed = await attempt();
+      }
       setMessages((prev) => [...prev, { role: "assistant", text: parsed.reply }]);
       if (parsed.endRoleplay) {
         setTimeout(() => endRoleplay(parsed.endReason || "Roleplay concluded."), 400);
@@ -573,7 +600,7 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
     setAssessing(true);
     const starter = starters.find((s) => s.id === starterId);
     const transcript = messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n");
-    const system = `You are a strict certified assessor evaluating an appointment-setting roleplay. Do not inflate scores. Do not be a people-pleaser. A weak performance must get a weak score. Score out of these weights: Communication Effectiveness 25, Objection Handling 25, Appointment Closing 20, Listening 10, Questioning 10, Confidence/Tone 5, Script Intent Alignment 5 (total 100). Passing score is 85. A confirmed appointment requires: 45-minute meeting, specific date, specific time, confirmed platform/location, clear commitment, permission to send details. Automatically fail (compliance) for guarantees, false claims, fake urgency, or pressure after final rejection.
+    const system = `You are a strict certified assessor evaluating an appointment-setting roleplay. Do not inflate scores. Do not be a people-pleaser. A weak performance must get a weak score. Score out of these weights: Communication Effectiveness 25, Objection Handling 25, Appointment Closing 20, Listening 10, Questioning 10, Confidence/Tone 5, Script Intent Alignment 5 (total 100). Passing score is 85. A confirmed appointment requires: 45-minute meeting, specific date, specific time, a general location or platform (an exact venue name is not required — a general reference like "a cafe near your office" or "on Zoom" counts as confirmed), clear commitment, permission to send details. Automatically fail (compliance) for guarantees, false claims, fake urgency, or pressure after final rejection.
 
 Conversation starter used (${language}): "${starterText(starter, language)}"
 End reason: ${endReason}
@@ -583,9 +610,18 @@ Respond with ONLY valid JSON in this exact shape:
 
 If the agent used an effective technique that is NOT part of the approved objection library or standard script (per AI Constitution Article 24), briefly describe it in flagged_technique and explain why it worked in flagged_technique_reason. Leave both as empty strings if nothing notable falls outside the approved library. This flag is for Admin review only — it does not affect the score.`;
 
-    try {
+    async function attemptAssessment() {
       const raw = await callClaude([{ role: "user", content: `TRANSCRIPT:\n${transcript}\n\nProduce the assessment JSON now.` }], system, 1500);
-      const parsed = extractJson(raw);
+      return extractJson(raw);
+    }
+
+    try {
+      let parsed;
+      try {
+        parsed = await attemptAssessment();
+      } catch (firstErr) {
+        parsed = await attemptAssessment();
+      }
       setAssessment(parsed);
       setScreen("assessment");
     } catch (e) {
@@ -699,7 +735,7 @@ If the agent used an effective technique that is NOT part of the approved object
                 <ul className="space-y-1.5 text-sm text-slate-800">
                   <li>• Read your script exactly as shown to open the call</li>
                   <li>• Speak or type naturally, like a real conversation</li>
-                  <li>• Get a specific date, time, and location before ending</li>
+                  <li>• Get a specific date, time, and a location or platform before ending</li>
                   <li>• Read your coaching report after every session</li>
                 </ul>
               </div>
