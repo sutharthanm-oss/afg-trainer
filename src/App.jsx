@@ -212,6 +212,7 @@ export default function App() {
   const [copiedWhere, setCopiedWhere] = useState("");
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
+  const [showFullBreakdown, setShowFullBreakdown] = useState(false);
 
   function copyText(text, where) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -719,6 +720,7 @@ If the agent used an effective technique that is NOT part of the approved object
     setSeconds(0);
     setRoleplayEnded(false);
     setShowScript(true);
+    setShowFullBreakdown(false);
     setMicError("");
     setShowMicHelp(false);
     setAssessment(null);
@@ -1204,41 +1206,63 @@ If the agent used an effective technique that is NOT part of the approved object
     return (
       <div className="min-h-screen bg-white text-slate-900 pb-10">
         <div className="px-6 pt-6 pb-2 border-b border-slate-100"><div className="h-7" /></div>
-        <div className={`px-6 pt-8 pb-8 text-center border-b border-slate-100 ${passed ? "bg-teal-50/60" : "bg-red-50/60"}`}>
+        <div className={`px-6 pt-8 pb-6 text-center border-b border-slate-100 ${passed ? "bg-teal-50/60" : "bg-red-50/60"}`}>
           {passed ? <CheckCircle2 className="mx-auto text-teal-600 mb-2" size={36} /> : <XCircle className="mx-auto text-red-500 mb-2" size={36} />}
           <div className="text-4xl font-bold text-slate-900">{assessment.overall}<span className="text-lg text-slate-400">/100</span></div>
           <div className={`text-sm font-semibold mt-1 ${passed ? "text-teal-700" : "text-red-600"}`}>{passed ? "PASS" : "RETRY"}</div>
-          <p className="text-sm text-slate-600 mt-2 max-w-xs mx-auto">
-            {passed
-              ? "Solid work — you earned that appointment fairly. Take the notes below and keep sharpening."
-              : mode === "Practice"
-              ? "This was practice — nobody's judging you. Every top agent retries scenarios before it clicks. Read the feedback below and go again."
-              : "Not this time — and that's completely normal early on. The feedback below tells you exactly what to fix. Retry when you're ready."}
-          </p>
-          <div className="text-slate-500 text-xs mt-3">Appointment: {assessment.appointment_outcome} · AI confidence {assessment.ai_confidence}%</div>
+          <div className="text-slate-500 text-xs mt-2">Appointment: {assessment.appointment_outcome} · AI confidence {assessment.ai_confidence}%</div>
         </div>
 
-        <div className="px-5 space-y-3 mt-5">
-          {scoreRows.map(([label, val, max]) => (
-            <div key={label} className="flex items-center gap-3">
-              <div className="w-32 text-xs text-slate-500 shrink-0">{label}</div>
-              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-teal-600" style={{ width: `${(val / max) * 100}%` }} />
-              </div>
-              <div className="text-xs text-slate-600 w-10 text-right font-medium">{val}/{max}</div>
+        <div className="px-5 mt-6">
+          <div className="rounded-xl border-2 border-teal-600 bg-teal-50 p-5">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-teal-700 mb-2.5">
+              <Award size={16} /> Your #1 Focus for Next Time
             </div>
-          ))}
+            <p className="text-base text-slate-900 leading-relaxed font-medium mb-3">{assessment.highest_impact_improvement}</p>
+            <div className="text-xs text-slate-500 pt-3 border-t border-teal-200">
+              <span className="font-semibold text-slate-600">What happened: </span>{assessment.one_biggest_mistake}
+            </div>
+          </div>
         </div>
 
-        <div className="px-5 mt-6 space-y-3">
-          <Card title="Biggest mistake" body={assessment.one_biggest_mistake} icon={<XCircle size={14} className="text-red-500" />} />
-          <Card title="Highest-impact improvement" body={assessment.highest_impact_improvement} icon={<Award size={14} className="text-teal-600" />} />
-          {assessment.strongest_sentence && <Card title="Strongest sentence" body={`"${assessment.strongest_sentence}"`} icon={<CheckCircle2 size={14} className="text-teal-600" />} />}
-          {assessment.better_close && <Card title="A better close" body={assessment.better_close} icon={<Phone size={14} className="text-teal-600" />} />}
-          {assessment.compliance_result === "Fail" && <Card title="Compliance issue" body={assessment.compliance_issue} icon={<XCircle size={14} className="text-red-500" />} tone="danger" />}
+        <div className="px-5 mt-5">
+          <button onClick={() => setShowFullBreakdown((v) => !v)}
+            className="w-full flex items-center justify-center gap-1.5 text-sm text-slate-500 py-2">
+            {showFullBreakdown ? "Hide full breakdown" : "See full score breakdown & more feedback"}
+            <ChevronRight size={14} className={`transition-transform ${showFullBreakdown ? "rotate-90" : ""}`} />
+          </button>
         </div>
+
+        {showFullBreakdown && (
+          <>
+            <div className="px-5 space-y-3 mt-2">
+              {scoreRows.map(([label, val, max]) => (
+                <div key={label} className="flex items-center gap-3">
+                  <div className="w-32 text-xs text-slate-500 shrink-0">{label}</div>
+                  <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-teal-600" style={{ width: `${(val / max) * 100}%` }} />
+                  </div>
+                  <div className="text-xs text-slate-600 w-10 text-right font-medium">{val}/{max}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="px-5 mt-6 space-y-3">
+              {assessment.strongest_sentence && <Card title="Strongest sentence" body={`"${assessment.strongest_sentence}"`} icon={<CheckCircle2 size={14} className="text-teal-600" />} />}
+              {assessment.better_close && <Card title="A better close" body={assessment.better_close} icon={<Phone size={14} className="text-teal-600" />} />}
+              {assessment.compliance_result === "Fail" && <Card title="Compliance issue" body={assessment.compliance_issue} icon={<XCircle size={14} className="text-red-500" />} tone="danger" />}
+            </div>
+          </>
+        )}
 
         <div className="px-5 mt-8 space-y-3">
+          <p className="text-center text-sm text-slate-600 max-w-xs mx-auto mb-1">
+            {passed
+              ? "Solid work — you earned that appointment fairly."
+              : mode === "Practice"
+              ? "This was practice — nobody's judging you. Fix the focus area above and go again."
+              : "Not this time, and that's normal early on. Fix the focus area above, then retry."}
+          </p>
           {submitState === "done" ? (
             <div className="text-center text-teal-700 text-sm py-3 font-medium">✓ Assessment recorded in Airtable.</div>
           ) : (
