@@ -89,23 +89,81 @@ function extractJson(text) {
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON found");
+  if (start === -1 || end === -1) throw new Error("No JSON found. Raw (first 300 chars): " + cleaned.slice(0, 300));
   let candidate = cleaned.slice(start, end + 1);
+
+  // Layer 1: parse as-is.
   try {
     return JSON.parse(candidate);
-  } catch (e) {
-    // Real-world model output occasionally contains raw line breaks/tabs inside a string
-    // value, or a trailing comma — both invalid in strict JSON but easy to repair, since
-    // none of our fields legitimately need real newlines preserved.
-    const repaired = candidate
-      .replace(/[\r\n\t]+/g, " ")
-      .replace(/,\s*([}\]])/g, "$1");
+  } catch (e1) {}
+
+  // Layer 2: repair common, harmless issues — raw line breaks/tabs inside a string value
+  // (invalid JSON, but none of our fields legitimately need real newlines preserved), and
+  // trailing commas before a closing bracket.
+  const repaired = candidate
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/,\s*([}\]])/g, "$1");
+  try {
+    return JSON.parse(repaired);
+  } catch (e2) {
+    throw new Error("Unable to parse JSON after repair. Raw (first 300 chars): " + candidate.slice(0, 300));
+  }
+}
+
+// Roleplay replies specifically get extra, more forgiving fallback layers on top of
+// extractJson, since a broken "reply" line should never actually break the conversation —
+// unlike the assessment, which genuinely needs real structured score data to be meaningful.
+function extractRoleplayReply(text) {
+  try {
+    return extractJson(text);
+  } catch (e) {}
+
+  const cleaned = text.replace(/```json|```/g, "").trim();
+
+  // Layer 3: loosely pull out just the fields we actually need via regex, rather than
+  // requiring the entire blob to be strictly valid JSON. Anchored on the *next known field
+  // name* (not just "any unescaped quote") so a stray quote inside the reply text itself
+  // (e.g. the prospect saying the word "hard sell" in quotes) doesn't truncate the sentence.
+  function looseReplyField() {
+    // Try a few anchor patterns, since field order can occasionally vary.
+    const patterns = [
+      /"reply"\s*:\s*"([\s\S]*?)"\s*,\s*"endRoleplay"/,
+      /"reply"\s*:\s*"([\s\S]*?)"\s*,\s*"endReason"/,
+      /"reply"\s*:\s*"([\s\S]*?)"\s*\}\s*$/,
+    ];
+    for (const re of patterns) {
+      const m = cleaned.match(re);
+      if (m) return m[1].replace(/\\"/g, '"').replace(/\\n|\\t/g, " ").trim();
+    }
+    return null;
+  }
+  function looseField(name) {
+    const m = cleaned.match(new RegExp(`"${name}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+    if (!m) return null;
     try {
-      return JSON.parse(repaired);
-    } catch (e2) {
-      throw new Error("Unable to parse JSON string: " + e2.message);
+      return JSON.parse('"' + m[1] + '"');
+    } catch (e) {
+      return m[1];
     }
   }
+  const looseReply = looseReplyField();
+  if (looseReply !== null && looseReply.length > 0) {
+    return {
+      reply: looseReply,
+      endRoleplay: /"endRoleplay"\s*:\s*true/.test(cleaned),
+      endReason: looseField("endReason") || "",
+    };
+  }
+
+  // Layer 4: absolute last resort — nothing parsed as structured data at all. Rather than
+  // breaking the conversation, treat the raw model output itself as the spoken line, with
+  // any stray JSON punctuation stripped off the ends.
+  const fallbackText = cleaned.replace(/^[{\s]+|[}\s]+$/g, "").trim();
+  if (fallbackText) {
+    return { reply: fallbackText, endRoleplay: false, endReason: "" };
+  }
+
+  throw new Error("Unable to parse response after all repair attempts. Raw (first 300 chars): " + cleaned.slice(0, 300));
 }
 
 function extractJsonArray(text) {
@@ -567,7 +625,7 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
 
     async function attempt() {
       const raw = await callClaude(apiMessages, buildRoleplaySystemPrompt(), 400);
-      return extractJson(raw);
+      return extractRoleplayReply(raw);
     }
 
     try {
