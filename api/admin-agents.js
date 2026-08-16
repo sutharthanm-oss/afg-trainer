@@ -74,6 +74,7 @@ export default async function handler(req, res) {
       const created = await airtableFetch(TABLE_AGENTS, token, {
         method: "POST",
         body: JSON.stringify({
+          typecast: true,
           records: [
             {
               fields: {
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
       if (accessCode) fields["Access Code"] = accessCode;
       await airtableFetch(TABLE_AGENTS, token, {
         method: "PATCH",
-        body: JSON.stringify({ records: [{ id, fields }] }),
+        body: JSON.stringify({ typecast: true, records: [{ id, fields }] }),
       });
       res.status(200).json({ success: true });
       return;
