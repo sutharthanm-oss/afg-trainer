@@ -37,7 +37,7 @@ async function airtableFetch(baseId, path, token, options = {}) {
 async function notifyTelegram(text) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!botToken || !chatId) return; // Not configured â silently skip, never block submission on this.
+  if (!botToken || !chatId) return; // Not configured — silently skip, never block submission on this.
   try {
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
@@ -89,6 +89,7 @@ export default async function handler(req, res) {
     const sessionCreate = await airtableFetch(BASE_ID, TABLE_TRAINING_SESSIONS, token, {
       method: "POST",
       body: JSON.stringify({
+        typecast: true,
         records: [
           {
             fields: {
@@ -122,6 +123,7 @@ export default async function handler(req, res) {
     await airtableFetch(BASE_ID, TABLE_COACHING_REPORTS, token, {
       method: "POST",
       body: JSON.stringify({
+        typecast: true,
         records: [
           {
             fields: {
@@ -147,12 +149,13 @@ export default async function handler(req, res) {
     });
 
     // 5. If the assessment flagged an effective-but-unapproved technique, log it for Admin
-    // review and ping Telegram â but never let a problem here fail the actual submission.
+    // review and ping Telegram — but never let a problem here fail the actual submission.
     if (assessment.flagged_technique && assessment.flagged_technique.trim()) {
       try {
         await airtableFetch(FLAGS_BASE_ID, TABLE_FLAGGED_TECHNIQUES, token, {
           method: "POST",
           body: JSON.stringify({
+            typecast: true,
             records: [
               {
                 fields: {
@@ -169,10 +172,10 @@ export default async function handler(req, res) {
           }),
         });
         await notifyTelegram(
-          `ð© <b>New technique flagged for review</b>\n\nAgent: ${agentCode}\nSession: ${sessionId}\n\n${assessment.flagged_technique}\n\n<i>${assessment.flagged_technique_reason || ""}</i>\n\nOpen CallSpar Admin â Flagged Techniques to review.`
+          `🚩 <b>New technique flagged for review</b>\n\nAgent: ${agentCode}\nSession: ${sessionId}\n\n${assessment.flagged_technique}\n\n<i>${assessment.flagged_technique_reason || ""}</i>\n\nOpen CallSpar Admin → Flagged Techniques to review.`
         );
       } catch (flagErr) {
-        // Swallow â a failed flag/notification should not block a successful session submission.
+        // Swallow — a failed flag/notification should not block a successful session submission.
       }
     }
 
