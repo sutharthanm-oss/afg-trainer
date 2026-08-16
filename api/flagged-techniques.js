@@ -68,6 +68,7 @@ export default async function handler(req, res) {
       await airtableFetch(TABLE_FLAGGED_TECHNIQUES, token, {
         method: "PATCH",
         body: JSON.stringify({
+          typecast: true,
           records: [
             {
               id,
