@@ -1,5 +1,5 @@
 // GET /api/prospects
-// Returns: { prospects: [{ id, name, age, occupation, personality, difficulty, hiddenConcern, hiddenMotivation }] }
+// Returns: { prospects: [{ id, name, age, occupation, location, personality, difficulty, hiddenConcern, hiddenMotivation }] }
 // Only Status = Approved. Adding a new prospect, or editing an existing one, is
 // done directly in the Prospect Library table in Airtable — no code change or redeploy needed.
 
@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   }
   try {
     const filterFormula = encodeURIComponent(`{Status} = "Approved"`);
-    const fields = ["Prospect ID", "Fictional Name", "Age Range", "Occupation", "Personality", "Difficulty", "Hidden Concern", "Hidden Motivation"]
+    const fields = ["Prospect ID", "Fictional Name", "Age Range", "Occupation", "Personality", "Difficulty", "Hidden Concern", "Hidden Motivation", "Market Type"]
       .map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
     const resp = await fetch(
       `https://api.airtable.com/v0/${BASE_ID}/${TABLE_PROSPECTS}?filterByFormula=${filterFormula}&${fields}&sort[0][field]=Prospect%20ID&sort[0][direction]=asc`,
@@ -35,6 +35,7 @@ export default async function handler(req, res) {
       name: r.fields["Fictional Name"] || "",
       age: r.fields["Age Range"] || "",
       occupation: r.fields["Occupation"] || "",
+      location: r.fields["Market Type"] || "",
       personality: r.fields["Personality"] || "",
       difficulty: r.fields["Difficulty"] || "",
       hiddenConcern: r.fields["Hidden Concern"] || "",
