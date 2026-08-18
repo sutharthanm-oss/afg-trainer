@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, Phone, PhoneOff, Send, ChevronRight, CheckCircle2, XCircle, Loader2, Clock, User, Award, Copy, Check, HelpCircle, Eye, EyeOff } from "lucide-react";
+import { Mic, Phone, PhoneOff, Send, ChevronRight, CheckCircle2, XCircle, Loader2, Clock, User, Award, Copy, Check, HelpCircle, Eye, EyeOff, FileDown } from "lucide-react";
+import { jsPDF } from "jspdf";
 
 /* ---------------------------------------------------------
    CallSpar — v1.0
@@ -35,8 +36,8 @@ const FALLBACK_OBJECTIONS = [
 ];
 
 const FALLBACK_PROSPECTS = [
-  { id: "PRO-001", name: "Aisyah binti Rahman", age: "28–34", occupation: "Marketing Executive", personality: "Friendly, slightly distracted, busy schedule", difficulty: "Beginner", hiddenConcern: "Worried about affording anything on her salary", hiddenMotivation: "Wants to feel like a responsible adult" },
-  { id: "PRO-006", name: "Nur Fatimah binti Zulkifli", age: "26–32", occupation: "Primary School Teacher", personality: "Polite, conflict-avoidant, agreeable on the surface", difficulty: "Beginner", hiddenConcern: "Genuinely can't stretch her budget further", hiddenMotivation: "Wants to say yes but fears her husband's disapproval" },
+  { id: "PRO-001", name: "Aisyah binti Rahman", age: "28–34", occupation: "Marketing Executive", location: "Urban, KL", personality: "Friendly, slightly distracted, busy schedule", difficulty: "Beginner", hiddenConcern: "Worried about affording anything on her salary", hiddenMotivation: "Wants to feel like a responsible adult" },
+  { id: "PRO-006", name: "Nur Fatimah binti Zulkifli", age: "26–32", occupation: "Primary School Teacher", location: "Suburban, Shah Alam", personality: "Polite, conflict-avoidant, agreeable on the surface", difficulty: "Beginner", hiddenConcern: "Genuinely can't stretch her budget further", hiddenMotivation: "Wants to say yes but fears her husband's disapproval" },
 ];
 
 const CONSTITUTION_SUMMARY = `Rules: appointments must be earned, never gifted. Weak communication must be challenged. No coaching during roleplay. Resistance changes with agent performance. The prospect remembers contradictions and may fully reject the appointment. Stay within the approved objection library. Product knowledge, recruitment, needs analysis, policy comparison are out of scope. This is a simulation.`;
@@ -193,7 +194,14 @@ export default function App() {
   const [newAgentAccessCode, setNewAgentAccessCode] = useState("");
   const [adminActionState, setAdminActionState] = useState("idle"); // idle | saving | done | error
   const [flaggedTechniques, setFlaggedTechniques] = useState([]);
+  const [dashboardData, setDashboardData] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [expandedAgentRow, setExpandedAgentRow] = useState(null);
   const [flagsLoading, setFlagsLoading] = useState(false);
+  const [rankedUnlocked, setRankedUnlocked] = useState(false);
+  const [showRankedUnlock, setShowRankedUnlock] = useState(false);
+  const [rankedUnlockPassword, setRankedUnlockPassword] = useState("");
+  const [rankedUnlockState, setRankedUnlockState] = useState("idle"); // idle | checking | error
   const [agentName, setAgentName] = useState("");
   const [agentCode, setAgentCode] = useState("");
   const [agentList, setAgentList] = useState([]);
@@ -312,6 +320,23 @@ export default function App() {
     }
   }, [input]);
 
+  async function unlockRankedMode() {
+    if (!rankedUnlockPassword.trim()) return;
+    setRankedUnlockState("checking");
+    try {
+      const resp = await fetch("/api/admin-agents", { headers: { "x-admin-secret": rankedUnlockPassword.trim() } });
+      if (resp.ok) {
+        setRankedUnlocked(true);
+        setShowRankedUnlock(false);
+        setRankedUnlockState("idle");
+      } else {
+        setRankedUnlockState("error");
+      }
+    } catch (e) {
+      setRankedUnlockState("error");
+    }
+  }
+
   async function loadAdminAgents(secret) {
     setAdminLoading(true);
     setAdminError("");
@@ -323,11 +348,25 @@ export default function App() {
       setAdminAuthed(true);
       setAdminAuthState("idle");
       loadFlaggedTechniques(secret);
+      loadDashboard(secret);
     } catch (e) {
       setAdminAuthState("error");
       setAdminError(e.message);
     } finally {
       setAdminLoading(false);
+    }
+  }
+
+  async function loadDashboard(secret) {
+    setDashboardLoading(true);
+    try {
+      const resp = await fetch("/api/dashboard", { headers: { "x-admin-secret": secret } });
+      const data = await resp.json();
+      if (resp.ok) setDashboardData(data);
+    } catch (e) {
+      // Non-critical — Admin panel still works without the dashboard loading.
+    } finally {
+      setDashboardLoading(false);
     }
   }
 
@@ -729,6 +768,95 @@ If the agent used an effective technique that is NOT part of the approved object
     setScreen("roleplay");
   }
 
+  function downloadSessionPDF() {
+    if (!assessment || assessment.error) return;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 48;
+    const maxW = pageW - marginX * 2;
+    let y = 56;
+
+    function ensureSpace(needed) {
+      if (y + needed > doc.internal.pageSize.getHeight() - 48) {
+        doc.addPage();
+        y = 56;
+      }
+    }
+    function heading(text, size = 14) {
+      ensureSpace(size + 14);
+      doc.setFont(undefined, "bold").setFontSize(size).setTextColor(22, 40, 60);
+      doc.text(text, marginX, y);
+      y += size + 8;
+      doc.setFont(undefined, "normal").setTextColor(20, 20, 20);
+    }
+    function body(text, size = 10) {
+      doc.setFont(undefined, "normal").setFontSize(size).setTextColor(40, 40, 40);
+      const lines = doc.splitTextToSize(String(text || "—"), maxW);
+      lines.forEach((line) => {
+        ensureSpace(size + 4);
+        doc.text(line, marginX, y);
+        y += size + 4;
+      });
+      y += 4;
+    }
+    function rule() {
+      ensureSpace(10);
+      doc.setDrawColor(200, 200, 200);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 14;
+    }
+
+    doc.setFont(undefined, "bold").setFontSize(18).setTextColor(22, 40, 60);
+    doc.text("CallSpar - Appointment Sparring", marginX, y);
+    y += 22;
+    doc.setFont(undefined, "normal").setFontSize(11).setTextColor(90, 90, 90);
+    doc.text("Session Report", marginX, y);
+    y += 24;
+
+    heading("Session Details", 12);
+    body(`Agent: ${agentName} (${agentCode})`);
+    body(`Session ID: ${sessionId}`);
+    body(`Date: ${new Date().toLocaleString()}`);
+    body(`Mode: ${mode}  ·  Language: ${language}  ·  Difficulty: ${difficulty}  ·  Starter: ${starterId}`);
+    body(`Prospect: ${prospect?.name || "—"} (${prospect?.occupation || "—"}${prospect?.location ? `, ${prospect.location}` : ""})`);
+    rule();
+
+    heading("Result", 12);
+    body(`Overall Score: ${assessment.overall}/100  —  ${assessment.pass_status === "Pass" ? "PASS" : "RETRY"}`);
+    body(`Appointment: ${assessment.appointment_outcome}  ·  AI Confidence: ${assessment.ai_confidence}%  ·  Compliance: ${assessment.compliance_result}`);
+    rule();
+
+    heading("Category Scores", 12);
+    [
+      ["Communication", assessment.communication, 25], ["Objection Handling", assessment.objection_handling, 25],
+      ["Appointment Closing", assessment.appointment_closing, 20], ["Listening", assessment.listening, 10],
+      ["Questioning", assessment.questioning, 10], ["Confidence & Tone", assessment.confidence_tone, 5],
+      ["Script Intent", assessment.script_intent, 5],
+    ].forEach(([label, val, max]) => body(`${label}: ${val}/${max}`));
+    rule();
+
+    heading("Your #1 Focus", 12);
+    body(assessment.highest_impact_improvement);
+    heading("What Happened", 12);
+    body(assessment.one_biggest_mistake);
+    if (assessment.strongest_sentence) { heading("Strongest Sentence", 12); body(`"${assessment.strongest_sentence}"`); }
+    if (assessment.better_close) { heading("A Better Close", 12); body(assessment.better_close); }
+    if (assessment.compliance_result === "Fail") { heading("Compliance Issue", 12); body(assessment.compliance_issue); }
+    rule();
+
+    heading("Full Conversation Transcript", 12);
+    messages.forEach((m) => {
+      const speaker = m.role === "user" ? `${agentName || "Agent"}:` : `${prospect?.name || "Prospect"}:`;
+      doc.setFont(undefined, "bold").setFontSize(10).setTextColor(22, 40, 60);
+      ensureSpace(14);
+      doc.text(speaker, marginX, y);
+      y += 14;
+      body(m.text);
+    });
+
+    doc.save(`CallSpar_${sessionId}.pdf`);
+  }
+
   async function submitToAirtable() {
     if (!assessment || assessment.error) return;
     setSubmitState("submitting");
@@ -912,7 +1040,37 @@ If the agent used an effective technique that is NOT part of the approved object
             )}
           </div>
 
-          <PillGroup label="Mode" value={mode} onChange={setMode} options={["Practice", "Ranked"]} />
+          {rankedUnlocked ? (
+            <PillGroup label="Mode" value={mode} onChange={setMode} options={["Practice", "Ranked"]} />
+          ) : (
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 block">Mode</label>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-slate-600">Practice only, for now</span>
+                {!showRankedUnlock && (
+                  <button onClick={() => setShowRankedUnlock(true)} className="text-xs text-teal-700 font-medium underline">
+                    Unlock Ranked
+                  </button>
+                )}
+              </div>
+              {showRankedUnlock && (
+                <div className="mt-2 flex gap-2">
+                  <input type="password" value={rankedUnlockPassword}
+                    onChange={(e) => { setRankedUnlockPassword(e.target.value); setRankedUnlockState("idle"); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") unlockRankedMode(); }}
+                    placeholder="Admin secret"
+                    className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <button onClick={unlockRankedMode} disabled={rankedUnlockState === "checking"}
+                    className="bg-slate-900 text-white text-xs font-medium rounded-lg px-4 disabled:opacity-40">
+                    {rankedUnlockState === "checking" ? "…" : "Unlock"}
+                  </button>
+                </div>
+              )}
+              {rankedUnlockState === "error" && (
+                <div className="text-xs text-red-600 mt-1.5">Incorrect password.</div>
+              )}
+            </div>
+          )}
           <PillGroup label="Language" value={language} onChange={setLanguage} options={["English", "Bahasa Malaysia", "Manglish", "Tamil", "Mandarin"]} />
           <PillGroup label="Difficulty" value={difficulty} onChange={setDifficulty} options={["Beginner", "Intermediate", "Advanced", "Expert"]} />
 
@@ -985,6 +1143,79 @@ If the agent used an effective technique that is NOT part of the approved object
           </div>
         ) : (
           <div className="flex-1 px-6 py-6 space-y-6">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Today's Dashboard {dashboardData ? `— ${dashboardData.date}` : ""}
+                </h2>
+                <button onClick={() => loadDashboard(adminSecretInput.trim())} className="text-xs text-teal-700 font-medium">Refresh</button>
+              </div>
+              {dashboardLoading ? (
+                <div className="text-sm text-slate-400">Loading…</div>
+              ) : !dashboardData || dashboardData.totalSessions === 0 ? (
+                <div className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-4">No sessions yet today.</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-slate-900">{dashboardData.totalSessions}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Sessions</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-slate-900">{dashboardData.uniqueAgents}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Agents active</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-slate-900">{dashboardData.averageScore ?? "—"}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Avg score</div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {dashboardData.agents.map((a) => {
+                      const displayName = adminAgents.find((ag) => ag.code === a.agentCode)?.name || a.agentCode;
+                      const isOpen = expandedAgentRow === a.agentCode;
+                      return (
+                        <div key={a.agentCode} className="border border-slate-200 rounded-lg overflow-hidden">
+                          <button onClick={() => setExpandedAgentRow(isOpen ? null : a.agentCode)}
+                            className="w-full flex items-center justify-between px-4 py-3 bg-white">
+                            <div className="text-left">
+                              <div className="text-sm font-medium text-slate-900">{displayName}</div>
+                              <div className="text-xs text-slate-500">{a.attempts} attempt{a.attempts !== 1 ? "s" : ""} · {a.passCount} pass · {a.retryCount} retry</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right">
+                                <div className="text-sm font-semibold text-slate-900">{a.avgScore ?? "—"}</div>
+                                <div className="text-xs text-slate-400">avg</div>
+                              </div>
+                              <ChevronRight size={16} className={`text-slate-400 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                            </div>
+                          </button>
+                          {isOpen && (
+                            <div className="border-t border-slate-200 bg-slate-50 divide-y divide-slate-200">
+                              {a.sessions.map((s) => (
+                                <div key={s.sessionId} className="px-4 py-3">
+                                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
+                                    <span>{s.time ? new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {s.mode} · {s.difficulty}</span>
+                                    <span className={`font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>{s.score ?? "—"}/100 · {s.pass || "—"}</span>
+                                  </div>
+                                  {s.improvement && (
+                                    <div className="text-xs text-slate-700"><span className="font-semibold text-teal-700">Focus: </span>{s.improvement}</div>
+                                  )}
+                                  {s.biggestMistake && (
+                                    <div className="text-xs text-slate-600 mt-1"><span className="font-semibold text-red-500">Mistake: </span>{s.biggestMistake}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">Add New Agent</h2>
               <div className="space-y-2.5">
@@ -1076,7 +1307,7 @@ If the agent used an effective technique that is NOT part of the approved object
             </div>
             <div>
               <div className="font-semibold text-sm text-slate-900">{prospect?.name}</div>
-              <div className="text-xs text-slate-500">{prospect?.occupation}</div>
+              <div className="text-xs text-slate-500">{prospect?.occupation}{prospect?.location ? ` · ${prospect.location}` : ""}</div>
             </div>
           </div>
         </div>
@@ -1263,6 +1494,10 @@ If the agent used an effective technique that is NOT part of the approved object
               ? "This was practice — nobody's judging you. Fix the focus area above and go again."
               : "Not this time, and that's normal early on. Fix the focus area above, then retry."}
           </p>
+          <button onClick={downloadSessionPDF}
+            className="w-full bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg py-3 flex items-center justify-center gap-2">
+            <FileDown size={16} /> Download conversation & report (PDF)
+          </button>
           {submitState === "done" ? (
             <div className="text-center text-teal-700 text-sm py-3 font-medium">✓ Assessment recorded in Airtable.</div>
           ) : (
