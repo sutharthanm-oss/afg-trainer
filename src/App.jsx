@@ -854,7 +854,23 @@ If the agent used an effective technique that is NOT part of the approved object
       body(m.text);
     });
 
-    doc.save(`CallSpar_${sessionId}.pdf`);
+    // Plain doc.save() relies on the browser's "download" attribute, which iOS Safari
+    // doesn't reliably support — it often navigates the whole app away to show the PDF
+    // instead of downloading it, leaving no way back. Opening it in a new tab instead
+    // keeps this app tab untouched underneath.
+    const blob = doc.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    const opened = window.open(blobUrl, "_blank");
+    if (!opened) {
+      // Pop-up blocked — fall back to a normal download attempt in the current tab.
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `CallSpar_${sessionId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   }
 
   async function submitToAirtable() {
@@ -1496,7 +1512,7 @@ If the agent used an effective technique that is NOT part of the approved object
           </p>
           <button onClick={downloadSessionPDF}
             className="w-full bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg py-3 flex items-center justify-center gap-2">
-            <FileDown size={16} /> Download conversation & report (PDF)
+            <FileDown size={16} /> View & save report (PDF, opens in new tab)
           </button>
           {submitState === "done" ? (
             <div className="text-center text-teal-700 text-sm py-3 font-medium">✓ Assessment recorded in Airtable.</div>
