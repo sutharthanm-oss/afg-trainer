@@ -685,8 +685,9 @@ RULES:
 - Increase resistance (become more guarded, short, skeptical) if the agent talks too much, interrupts, ignores your objection, pressures you, or contradicts themselves.
 - Decrease resistance (become warmer, more open) if the agent listens, acknowledges your concern, asks good questions, and communicates clearly.
 - Do not give an appointment easily. Require a specific date, time, a general location or platform (an exact venue name is not required — "a coffee shop near your office" or "a call on Zoom" is acceptable), and your clear agreement before accepting.
-- You may fully reject the appointment if the agent performs poorly or pressures you after you've declined.
+${ov.noRejection ? "- This is a scripted product demonstration. Raise realistic objections and questions, but do NOT fully reject the appointment under any circumstances — always remain open to eventually agreeing." : "- You may fully reject the appointment if the agent performs poorly or pressures you after you've declined."}
 - Never coach the agent. Never break character. Never mention that you are an AI or that this is a simulation.
+${ov.forceAccept ? "\nIMPORTANT — THIS IS THE FINAL TURN: You must now warmly and unambiguously ACCEPT the appointment exactly as most recently proposed, confirming the day, time, and location or platform back to the agent. Do not ask any further questions, do not raise any new objection, and set endRoleplay to true with endReason describing the confirmed appointment." : ""}
 
 OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
 {"reply": "<your in-character spoken response>", "endRoleplay": <true if a fully confirmed appointment was just secured, OR you are giving a final firm rejection, otherwise false>, "endReason": "<short reason if ending, else empty string>"}`;
@@ -883,7 +884,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
       const MAX_EXCHANGES = 4;
       let closingLine = "";
       let naturalEnd = false;
-      const overrides = { prospect: p, objections: objs, starterId: randomStarter.id, language: "English" };
+      const overrides = { prospect: p, objections: objs, starterId: randomStarter.id, language: "English", noRejection: true };
       for (let i = 0; i < MAX_EXCHANGES; i++) {
         setAutoPlayTypingAs("prospect");
         const prospectTurn = await generateProspectLine(overrides);
@@ -903,11 +904,13 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
       // If the loop ended because we hit the round cap — not because the prospect had
       // already confirmed and ended things naturally — the conversation would otherwise
-      // stop right on the agent's own closing proposal, with no reply. Get one final
-      // prospect line responding to that close so the conversation actually finishes.
+      // stop right on the agent's own closing proposal, with no reply. This final turn is
+      // explicitly forced to accept (forceAccept), not left to the prospect's own judgment
+      // like every other turn — a scripted demo can't end on an ambiguous "let me think
+      // about it", it needs to visibly land on a confirmed yes every time.
       if (!naturalEnd) {
         setAutoPlayTypingAs("prospect");
-        const finalTurn = await generateProspectLine(overrides);
+        const finalTurn = await generateProspectLine({ ...overrides, forceAccept: true });
         setAutoPlayTypingAs("");
         pushMessage({ role: "assistant", text: finalTurn.reply });
         await sleep(900);
