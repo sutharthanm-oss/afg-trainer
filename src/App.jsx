@@ -658,25 +658,30 @@ export default function App() {
     setListening(false);
   }
 
-  function buildRoleplaySystemPrompt() {
-    const starter = starters.find((s) => s.id === starterId);
+  function buildRoleplaySystemPrompt(overrides) {
+    const ov = overrides || {};
+    const p = ov.prospect || prospect;
+    const objs = ov.objections || objections;
+    const sid = ov.starterId || starterId;
+    const lang = ov.language || language;
+    const starter = starters.find((s) => s.id === sid);
     return `You are playing a fictional Malaysian insurance prospect in a training simulation for appointment-setting agents. ${CONSTITUTION_SUMMARY}
 
 PROSPECT PROFILE (stay fully in character, never break character, never reveal hidden fields directly):
-Name: ${prospect.name} | Age: ${prospect.age} | Occupation: ${prospect.occupation}
-Personality: ${prospect.personality}
-Hidden concern (only surface through your behaviour, never state directly): ${prospect.hiddenConcern}
-Hidden motivation (only surface through your behaviour, never state directly): ${prospect.hiddenMotivation}
+Name: ${p.name} | Age: ${p.age} | Occupation: ${p.occupation}
+Personality: ${p.personality}
+Hidden concern (only surface through your behaviour, never state directly): ${p.hiddenConcern}
+Hidden motivation (only surface through your behaviour, never state directly): ${p.hiddenMotivation}
 
-CONVERSATION STARTER THE AGENT IS USING (in ${language}): "${starterText(starter, language)}"
+CONVERSATION STARTER THE AGENT IS USING (in ${lang}): "${starterText(starter, lang)}"
 
 APPROVED OBJECTIONS YOU MUST RAISE, IN ORDER, ONE AT A TIME, ONLY WHEN NATURALLY RELEVANT (do not dump all three at once):
-1. [${objections[0]?.id}] ${objections[0]?.main} (category: ${objections[0]?.category})
-2. [${objections[1]?.id}] ${objections[1]?.main} (category: ${objections[1]?.category})
-3. [${objections[2]?.id}] ${objections[2]?.main} (category: ${objections[2]?.category})
+1. [${objs[0]?.id}] ${objs[0]?.main} (category: ${objs[0]?.category})
+2. [${objs[1]?.id}] ${objs[1]?.main} (category: ${objs[1]?.category})
+3. [${objs[2]?.id}] ${objs[2]?.main} (category: ${objs[2]?.category})
 
 RULES:
-- Respond ONLY in character as the prospect, in ${language === "Manglish" ? "natural Manglish (mixed English/Malay)" : language}. Keep replies short and conversational (1-3 sentences), like real speech.
+- Respond ONLY in character as the prospect, in ${lang === "Manglish" ? "natural Manglish (mixed English/Malay)" : lang}. Keep replies short and conversational (1-3 sentences), like real speech.
 - Increase resistance (become more guarded, short, skeptical) if the agent talks too much, interrupts, ignores your objection, pressures you, or contradicts themselves.
 - Decrease resistance (become warmer, more open) if the agent listens, acknowledges your concern, asks good questions, and communicates clearly.
 - Do not give an appointment easily. Require a specific date, time, a general location or platform (an exact venue name is not required — "a coffee shop near your office" or "a call on Zoom" is acceptable), and your clear agreement before accepting.
@@ -770,32 +775,35 @@ If the agent used an effective technique that is NOT part of the approved object
     }
   }
 
-  function buildMasterAgentSystemPrompt(closeNow) {
-    const starter = starters.find((s) => s.id === starterId);
-    return `You are playing a master-level, top-performing insurance appointment-setting agent in a scripted product demonstration. You are speaking with a fictional prospect. Handle whatever they say smoothly and briefly using natural, proven techniques (acknowledge the concern, reframe it, redirect toward the appointment) — never sound robotic or scripted, sound like a confident real person. Keep each response to 1-3 natural sentences, like real speech, in ${language === "Manglish" ? "natural Manglish (mixed English/Malay)" : language}.
+  function buildMasterAgentSystemPrompt(closeNow, overrides) {
+    const ov = overrides || {};
+    const sid = ov.starterId || starterId;
+    const lang = ov.language || language;
+    const starter = starters.find((s) => s.id === sid);
+    return `You are playing a master-level, top-performing insurance appointment-setting agent in a scripted product demonstration. You are speaking with a fictional prospect. Handle whatever they say smoothly and briefly using natural, proven techniques (acknowledge the concern, reframe it, redirect toward the appointment) — never sound robotic or scripted, sound like a confident real person. Keep each response to 1-3 natural sentences, like real speech, in ${lang === "Manglish" ? "natural Manglish (mixed English/Malay)" : lang}.
 
-Conversation starter already used to open (do not repeat it): "${starterText(starter, language)}"
+Conversation starter already used to open (do not repeat it): "${starterText(starter, lang)}"
 ${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask another open question." : ""}
 
 Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says next>"}`;
   }
 
-  async function generateMasterAgentLine(closeNow) {
+  async function generateMasterAgentLine(closeNow, overrides) {
     const apiMessages = messagesRef.current.map((m) => ({
       role: m.role === "user" ? "user" : "assistant",
       content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
     }));
-    const raw = await callClaude(apiMessages, buildMasterAgentSystemPrompt(closeNow), 300);
+    const raw = await callClaude(apiMessages, buildMasterAgentSystemPrompt(closeNow, overrides), 300);
     const parsed = extractRoleplayReply(raw);
     return parsed.reply;
   }
 
-  async function generateProspectLine() {
+  async function generateProspectLine(overrides) {
     const apiMessages = messagesRef.current.map((m) => ({
       role: m.role === "user" ? "user" : "assistant",
       content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
     }));
-    const raw = await callClaude(apiMessages, buildRoleplaySystemPrompt(), 400);
+    const raw = await callClaude(apiMessages, buildRoleplaySystemPrompt(overrides), 400);
     return extractRoleplayReply(raw);
   }
 
@@ -863,9 +871,10 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
       const MAX_EXCHANGES = 4;
       let closingLine = "";
+      const overrides = { prospect: p, objections: objs, starterId: randomStarter.id, language: "English" };
       for (let i = 0; i < MAX_EXCHANGES; i++) {
         setAutoPlayTypingAs("prospect");
-        const prospectTurn = await generateProspectLine();
+        const prospectTurn = await generateProspectLine(overrides);
         setAutoPlayTypingAs("");
         pushMessage({ role: "assistant", text: prospectTurn.reply });
         await sleep(900);
@@ -873,7 +882,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
         const isLastTurn = i === MAX_EXCHANGES - 1;
         setAutoPlayTypingAs("agent");
-        const agentLine = await generateMasterAgentLine(isLastTurn);
+        const agentLine = await generateMasterAgentLine(isLastTurn, overrides);
         setAutoPlayTypingAs("");
         closingLine = agentLine;
         pushMessage({ role: "user", text: agentLine });
@@ -1037,6 +1046,93 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   }
 
+  function downloadAllSessionsPDF() {
+    if (!dashboardData || dashboardData.totalSessions === 0) return;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 48;
+    const maxW = pageW - marginX * 2;
+    let y = 56;
+
+    function ensureSpace(needed) {
+      if (y + needed > doc.internal.pageSize.getHeight() - 48) {
+        doc.addPage();
+        y = 56;
+      }
+    }
+    function heading(text, size = 14) {
+      ensureSpace(size + 14);
+      doc.setFont(undefined, "bold").setFontSize(size).setTextColor(22, 40, 60);
+      doc.text(text, marginX, y);
+      y += size + 8;
+      doc.setFont(undefined, "normal").setTextColor(20, 20, 20);
+    }
+    function body(text, size = 10) {
+      doc.setFont(undefined, "normal").setFontSize(size).setTextColor(40, 40, 40);
+      const lines = doc.splitTextToSize(String(text || "—"), maxW);
+      lines.forEach((line) => {
+        ensureSpace(size + 4);
+        doc.text(line, marginX, y);
+        y += size + 4;
+      });
+      y += 4;
+    }
+    function rule() {
+      ensureSpace(10);
+      doc.setDrawColor(200, 200, 200);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 14;
+    }
+
+    doc.setFont(undefined, "bold").setFontSize(18).setTextColor(22, 40, 60);
+    doc.text("CallSpar - Appointment Sparring", marginX, y);
+    y += 22;
+    doc.setFont(undefined, "normal").setFontSize(11).setTextColor(90, 90, 90);
+    doc.text(`All-Agent Session Report — ${dashboardData.date}`, marginX, y);
+    y += 18;
+    doc.setFontSize(10);
+    doc.text(`${dashboardData.totalSessions} sessions · ${dashboardData.uniqueAgents} agents · avg score ${dashboardData.averageScore ?? "—"}`, marginX, y);
+    y += 24;
+
+    dashboardData.agents.forEach((a) => {
+      const displayName = adminAgents.find((ag) => ag.code === a.agentCode)?.name || a.agentCode;
+      ensureSpace(60);
+      heading(displayName, 15);
+      body(`${a.attempts} attempt${a.attempts !== 1 ? "s" : ""} · ${a.passCount} pass · ${a.retryCount} retry · avg ${a.avgScore ?? "—"} · best ${a.bestScore ?? "—"}`);
+      rule();
+
+      a.sessions.forEach((s) => {
+        heading(`${s.sessionId} — ${s.score ?? "—"}/100 (${s.pass || "—"})`, 12);
+        body(`${s.time ? new Date(s.time).toLocaleString() : "—"} · ${s.mode} · ${s.difficulty} · Appointment: ${s.outcome}${s.prospectName ? ` · vs. ${s.prospectName}${s.prospectLocation ? `, ${s.prospectLocation}` : ""}` : ""}`);
+        if (s.categoryEvidence) { heading("Category breakdown", 11); body(s.categoryEvidence); }
+        if (s.allMistakes && s.allMistakes.length) { heading("Mistakes", 11); s.allMistakes.forEach((m) => body("• " + m)); }
+        if (s.thingsDoneWell && s.thingsDoneWell.length) { heading("Done well", 11); s.thingsDoneWell.forEach((g) => body("• " + g)); }
+        if (s.transcript) {
+          heading("Conversation Transcript", 11);
+          s.transcript.split("\n").forEach((line) => body(line));
+        } else {
+          body("(No transcript saved for this session — it was submitted before transcript logging was added.)");
+        }
+        y += 8;
+      });
+      ensureSpace(20);
+      y += 10;
+    });
+
+    const blob = doc.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    const opened = window.open(blobUrl, "_blank");
+    if (!opened) {
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `CallSpar_All_Sessions_${dashboardData.date}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  }
+
   async function submitToAirtable() {
     if (!assessment || assessment.error) return;
     setSubmitState("submitting");
@@ -1052,6 +1148,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
           difficulty,
           starterId,
           assessment,
+          transcript: messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n"),
         }),
       });
       const data = await resp.json();
@@ -1393,6 +1490,12 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                   Today
                 </button>
               </div>
+              {dashboardData && dashboardData.totalSessions > 0 && (
+                <button onClick={downloadAllSessionsPDF}
+                  className="w-full mb-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg py-2.5 flex items-center justify-center gap-2 text-sm">
+                  <FileDown size={15} /> Download all sessions (PDF)
+                </button>
+              )}
               {dashboardLoading ? (
                 <div className="text-sm text-slate-400">Loading…</div>
               ) : !dashboardData || dashboardData.totalSessions === 0 ? (
@@ -1828,6 +1931,10 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
           </button>
           {submitState === "done" ? (
             <div className="text-center text-teal-700 text-sm py-3 font-medium">✓ Assessment recorded in Airtable.</div>
+          ) : mode === "Demo" ? (
+            <div className="text-center text-slate-400 text-xs py-3 bg-slate-50 border border-slate-200 rounded-lg">
+              Master Inviter sessions are scripted demonstrations and can't be submitted as a real assessment.
+            </div>
           ) : (
             <button onClick={submitToAirtable} disabled={submitState === "submitting"}
               className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg py-3.5 flex items-center justify-center gap-2 disabled:opacity-50">
