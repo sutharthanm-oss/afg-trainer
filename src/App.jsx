@@ -789,9 +789,18 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
   }
 
   async function generateMasterAgentLine(closeNow, overrides) {
-    const apiMessages = messagesRef.current.map((m) => ({
-      role: m.role === "user" ? "user" : "assistant",
-      content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
+    // Claude is now playing the AGENT side, which is the opposite of every other call in
+    // this app — so the role mapping must be inverted from generateProspectLine: the
+    // agent's own past lines (internal role "user") become this call's "assistant" turns,
+    // and the prospect's lines (internal role "assistant") become this call's "user" turns.
+    // The opening line is also dropped entirely — it was the agent's own fixed script, not
+    // something to "respond to", and the system prompt already tells Claude not to repeat
+    // it. Skipping it is what makes the array correctly both start AND end on a "user" turn
+    // (Anthropic requires both) — inverting the roles alone still left it starting on
+    // "assistant", which is equally invalid as ending on one.
+    const apiMessages = messagesRef.current.slice(1).map((m) => ({
+      role: m.role === "user" ? "assistant" : "user",
+      content: m.role === "user" ? JSON.stringify({ reply: m.text }) : m.text,
     }));
     const raw = await callClaude(apiMessages, buildMasterAgentSystemPrompt(closeNow, overrides), 300);
     const parsed = extractRoleplayReply(raw);
