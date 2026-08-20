@@ -40,6 +40,11 @@ const FALLBACK_PROSPECTS = [
   { id: "PRO-006", name: "Nur Fatimah binti Zulkifli", age: "26–32", occupation: "Primary School Teacher", location: "Suburban, Shah Alam", personality: "Polite, conflict-avoidant, agreeable on the surface", difficulty: "Beginner", hiddenConcern: "Genuinely can't stretch her budget further", hiddenMotivation: "Wants to say yes but fears her husband's disapproval" },
 ];
 
+// DEMO MODE: when true, agents only see the Quick Practice button — no Mode/Language/
+// Difficulty/Starter customization, no separate "Start the call" button. Set to false to
+// restore full customization for everyone once the demo period is over.
+const DEMO_MODE = true;
+
 const CONSTITUTION_SUMMARY = `Rules: appointments must be earned, never gifted. Weak communication must be challenged. No coaching during roleplay. Resistance changes with agent performance. The prospect remembers contradictions and may fully reject the appointment. Stay within the approved objection library. Product knowledge, recruitment, needs analysis, policy comparison are out of scope. This is a simulation.`;
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -182,7 +187,9 @@ const FALLBACK_AGENTS = [
 ];
 
 export default function App() {
-  const [screen, setScreen] = useState("setup");
+  const [screen, setScreen] = useState(() =>
+    typeof window !== "undefined" && window.location.pathname.toLowerCase().includes("dashboard") ? "admin" : "setup"
+  );
   const [adminSecretInput, setAdminSecretInput] = useState("");
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [adminAuthState, setAdminAuthState] = useState("idle"); // idle | checking | error
@@ -197,8 +204,14 @@ export default function App() {
   const [dashboardData, setDashboardData] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [expandedAgentRow, setExpandedAgentRow] = useState(null);
+  const [expandedSessionId, setExpandedSessionId] = useState(null);
+  const [dashboardRange, setDashboardRange] = useState("all");
   const [flagsLoading, setFlagsLoading] = useState(false);
   const [rankedUnlocked, setRankedUnlocked] = useState(false);
+  const [godModeUnlocked, setGodModeUnlocked] = useState(false);
+  const [showGodModeUnlock, setShowGodModeUnlock] = useState(false);
+  const [godModePassword, setGodModePassword] = useState("");
+  const [godModeUnlockState, setGodModeUnlockState] = useState("idle"); // idle | checking | error
   const [showRankedUnlock, setShowRankedUnlock] = useState(false);
   const [rankedUnlockPassword, setRankedUnlockPassword] = useState("");
   const [rankedUnlockState, setRankedUnlockState] = useState("idle"); // idle | checking | error
@@ -242,6 +255,8 @@ export default function App() {
   const [objections, setObjections] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState([]);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const messagesRef = useRef([]);
   const [input, setInput] = useState("");
   const [listening, setListening] = useState(false);
   const [micError, setMicError] = useState("");
@@ -337,6 +352,23 @@ export default function App() {
     }
   }
 
+  async function unlockGodMode() {
+    if (!godModePassword.trim()) return;
+    setGodModeUnlockState("checking");
+    try {
+      const resp = await fetch("/api/admin-agents", { headers: { "x-admin-secret": godModePassword.trim() } });
+      if (resp.ok) {
+        setGodModeUnlocked(true);
+        setShowGodModeUnlock(false);
+        setGodModeUnlockState("idle");
+      } else {
+        setGodModeUnlockState("error");
+      }
+    } catch (e) {
+      setGodModeUnlockState("error");
+    }
+  }
+
   async function loadAdminAgents(secret) {
     setAdminLoading(true);
     setAdminError("");
@@ -348,7 +380,7 @@ export default function App() {
       setAdminAuthed(true);
       setAdminAuthState("idle");
       loadFlaggedTechniques(secret);
-      loadDashboard(secret);
+      loadDashboard(secret, "all");
     } catch (e) {
       setAdminAuthState("error");
       setAdminError(e.message);
@@ -357,10 +389,11 @@ export default function App() {
     }
   }
 
-  async function loadDashboard(secret) {
+  async function loadDashboard(secret, range) {
     setDashboardLoading(true);
     try {
-      const resp = await fetch("/api/dashboard", { headers: { "x-admin-secret": secret } });
+      const url = range === "all" ? "/api/dashboard?range=all" : "/api/dashboard";
+      const resp = await fetch(url, { headers: { "x-admin-secret": secret } });
       const data = await resp.json();
       if (resp.ok) setDashboardData(data);
     } catch (e) {
@@ -700,11 +733,15 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
     const transcript = messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n");
     const system = `You are a strict certified assessor evaluating an appointment-setting roleplay. Do not inflate scores. Do not be a people-pleaser. A weak performance must get a weak score. Score out of these weights: Communication Effectiveness 25, Objection Handling 25, Appointment Closing 20, Listening 10, Questioning 10, Confidence/Tone 5, Script Intent Alignment 5 (total 100). Passing score is 80. A confirmed appointment requires: 45-minute meeting, specific date, specific time, a general location or platform (an exact venue name is not required — a general reference like "a cafe near your office" or "on Zoom" counts as confirmed), clear commitment, permission to send details. Automatically fail (compliance) for guarantees, false claims, fake urgency, or pressure after final rejection.
 
+For EVERY one of the 7 category scores, you must give a short, specific, evidence-based reason quoting or closely referencing what the agent actually said — never a generic reason like "good communication" or "needs improvement". A score that isn't full marks must explain concretely what was missing, not just repeat the category name. A full-marks score must say specifically what was done right.
+
+List EVERY distinct mistake you can identify (not just the single biggest one) — each as a short, specific, standalone point. Same for strengths — list EVERY distinct thing the agent did well, not just one. Use empty arrays if genuinely none apply, but do not pad the lists with filler either.
+
 Conversation starter used (${language}): "${starterText(starter, language)}"
 End reason: ${endReason}
 
 Respond with ONLY valid JSON in this exact shape:
-{"communication":0,"objection_handling":0,"appointment_closing":0,"listening":0,"questioning":0,"confidence_tone":0,"script_intent":0,"overall":0,"pass_status":"Pass or Retry","appointment_outcome":"Secured or Not Secured","compliance_result":"Pass or Fail","compliance_issue":"","ai_confidence":0,"one_biggest_mistake":"","highest_impact_improvement":"","strongest_sentence":"","strongest_question":"","better_response":"","better_close":"","full_report":"","flagged_technique":"","flagged_technique_reason":""}
+{"communication":0,"communication_evidence":"","objection_handling":0,"objection_handling_evidence":"","appointment_closing":0,"appointment_closing_evidence":"","listening":0,"listening_evidence":"","questioning":0,"questioning_evidence":"","confidence_tone":0,"confidence_tone_evidence":"","script_intent":0,"script_intent_evidence":"","overall":0,"pass_status":"Pass or Retry","appointment_outcome":"Secured or Not Secured","compliance_result":"Pass or Fail","compliance_issue":"","ai_confidence":0,"one_biggest_mistake":"","highest_impact_improvement":"","strongest_sentence":"","strongest_question":"","better_response":"","better_close":"","full_report":"","flagged_technique":"","flagged_technique_reason":"","all_mistakes":[],"things_done_well":[]}
 
 If the agent used an effective technique that is NOT part of the approved objection library or standard script (per AI Constitution Article 24), briefly describe it in flagged_technique and explain why it worked in flagged_technique_reason. Leave both as empty strings if nothing notable falls outside the approved library. This flag is for Admin review only — it does not affect the score.`;
 
@@ -727,6 +764,125 @@ If the agent used an effective technique that is NOT part of the approved object
       setScreen("assessment");
     } finally {
       setAssessing(false);
+    }
+  }
+
+  function buildMasterAgentSystemPrompt(closeNow) {
+    const starter = starters.find((s) => s.id === starterId);
+    return `You are playing a master-level, top-performing insurance appointment-setting agent in a scripted product demonstration. You are speaking with a fictional prospect. Handle whatever they say smoothly and briefly using natural, proven techniques (acknowledge the concern, reframe it, redirect toward the appointment) — never sound robotic or scripted, sound like a confident real person. Keep each response to 1-3 natural sentences, like real speech, in ${language === "Manglish" ? "natural Manglish (mixed English/Malay)" : language}.
+
+Conversation starter already used to open (do not repeat it): "${starterText(starter, language)}"
+${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask another open question." : ""}
+
+Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says next>"}`;
+  }
+
+  async function generateMasterAgentLine(closeNow) {
+    const apiMessages = messagesRef.current.map((m) => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
+    }));
+    const raw = await callClaude(apiMessages, buildMasterAgentSystemPrompt(closeNow), 300);
+    const parsed = extractRoleplayReply(raw);
+    return parsed.reply;
+  }
+
+  async function generateProspectLine() {
+    const apiMessages = messagesRef.current.map((m) => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.role === "assistant" ? JSON.stringify({ reply: m.text }) : m.text,
+    }));
+    const raw = await callClaude(apiMessages, buildRoleplaySystemPrompt(), 400);
+    return extractRoleplayReply(raw);
+  }
+
+  function buildPerfectDemoAssessment(closingLine) {
+    return {
+      communication: 25, communication_evidence: "Clear, confident, natural delivery throughout — no filler, no hesitation, every line purposeful.",
+      objection_handling: 25, objection_handling_evidence: "Every objection acknowledged, reframed, and redirected smoothly without dismissing the prospect's concern.",
+      appointment_closing: 20, appointment_closing_evidence: "Closed with a confident two-choice close and a specific date, time, and location.",
+      listening: 10, listening_evidence: "Responses directly addressed what the prospect actually said, not a generic script.",
+      questioning: 10, questioning_evidence: "Used targeted questions to surface the prospect's real concern before addressing it.",
+      confidence_tone: 5, confidence_tone_evidence: "Warm, assured tone throughout, never pushy.",
+      script_intent: 5, script_intent_evidence: "Stayed fully aligned with the starter's intent from open to close.",
+      overall: 100, pass_status: "Pass", appointment_outcome: "Secured", compliance_result: "Pass", compliance_issue: "",
+      ai_confidence: 100,
+      one_biggest_mistake: "None — this is a scripted, gold-standard example run, not a graded live session.",
+      highest_impact_improvement: "Nothing to improve — this demonstrates the ceiling of what a fully executed session looks like.",
+      strongest_sentence: closingLine || "",
+      strongest_question: "",
+      better_response: "", better_close: "",
+      full_report: "MASTER INVITER MODE — this session was auto-generated end-to-end as a scripted product demonstration and was never independently assessed by the strict grading model. It always shows a perfect 100/100 by design and must never be treated as, or compared against, a real agent's genuine performance.",
+      flagged_technique: "", flagged_technique_reason: "",
+      all_mistakes: [],
+      things_done_well: ["Opened exactly on script", "Handled every objection without conceding ground", "Closed with a specific date, time, and location", "Never once broke character or lost the thread of the conversation"],
+    };
+  }
+
+  async function runMasterInviterDemo() {
+    if (!selectedAgentCode || verifyState !== "verified") {
+      alert("Please select your name and verify your access code first.");
+      return;
+    }
+    const randomStarter = pick(starters);
+    const p = pick(prospectLibrary);
+    const objs = pickThreeObjections(objectionLibrary, "Beginner");
+    setStarterId(randomStarter.id);
+    setLanguage("English");
+    setDifficulty("Beginner");
+    setMode("Demo");
+    setProspect(p);
+    setObjections(objs);
+    setSessionId(newSessionId(agentCode));
+    setMessages([]);
+    messagesRef.current = [];
+    setSeconds(0);
+    setRoleplayEnded(false);
+    setShowScript(false);
+    setShowFullBreakdown(false);
+    setAssessment(null);
+    setSubmitState("idle");
+    setSubmitError("");
+    setIsAutoPlaying(true);
+    setScreen("roleplay");
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    function pushMessage(msg) {
+      messagesRef.current = [...messagesRef.current, msg];
+      setMessages(messagesRef.current);
+    }
+
+    try {
+      // Turn 1: open exactly on script, no API call needed.
+      pushMessage({ role: "user", text: starterText(randomStarter, "English") });
+      await sleep(900);
+
+      const MAX_EXCHANGES = 4;
+      let closingLine = "";
+      for (let i = 0; i < MAX_EXCHANGES; i++) {
+        const prospectTurn = await generateProspectLine();
+        pushMessage({ role: "assistant", text: prospectTurn.reply });
+        await sleep(900);
+        if (prospectTurn.endRoleplay) break;
+
+        const isLastTurn = i === MAX_EXCHANGES - 1;
+        const agentLine = await generateMasterAgentLine(isLastTurn);
+        closingLine = agentLine;
+        pushMessage({ role: "user", text: agentLine });
+        await sleep(900);
+      }
+
+      setRoleplayEnded(true);
+      setAssessment(buildPerfectDemoAssessment(closingLine));
+      setScreen("assessment");
+    } catch (e) {
+      pushMessage({ role: "assistant", text: "(Demo interrupted: " + e.message + ")" });
+      setRoleplayEnded(true);
+      setAssessment(buildPerfectDemoAssessment(""));
+      setScreen("assessment");
+    } finally {
+      setIsAutoPlaying(false);
     }
   }
 
@@ -1025,7 +1181,40 @@ If the agent used an effective technique that is NOT part of the approved object
                       className="w-full bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg py-3 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
                       <Phone size={16} /> Quick Practice (random, Beginner)
                     </button>
-                    <p className="text-center text-xs text-slate-400 mt-1.5">Or customize your session below</p>
+                    {!DEMO_MODE && <p className="text-center text-xs text-slate-400 mt-1.5">Or customize your session below</p>}
+
+                    {godModeUnlocked ? (
+                      <button onClick={runMasterInviterDemo}
+                        className="w-full mt-2.5 bg-slate-900 text-white font-semibold rounded-lg py-3 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+                        <Award size={16} /> Master Inviter
+                      </button>
+                    ) : (
+                      <div className="mt-2.5">
+                        {!showGodModeUnlock ? (
+                          <button onClick={() => setShowGodModeUnlock(true)}
+                            className="w-full text-center text-xs text-slate-400 py-2 underline">
+                            Master Inviter — password required
+                          </button>
+                        ) : (
+                          <div>
+                            <div className="flex gap-2">
+                              <input type="password" value={godModePassword}
+                                onChange={(e) => { setGodModePassword(e.target.value); setGodModeUnlockState("idle"); }}
+                                onKeyDown={(e) => { if (e.key === "Enter") unlockGodMode(); }}
+                                placeholder="Admin password"
+                                className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                              <button onClick={unlockGodMode} disabled={godModeUnlockState === "checking"}
+                                className="bg-slate-900 text-white text-xs font-medium rounded-lg px-4 disabled:opacity-40">
+                                {godModeUnlockState === "checking" ? "…" : "Unlock"}
+                              </button>
+                            </div>
+                            {godModeUnlockState === "error" && (
+                              <div className="text-xs text-red-600 mt-1.5">Incorrect password.</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1056,6 +1245,8 @@ If the agent used an effective technique that is NOT part of the approved object
             )}
           </div>
 
+          {!DEMO_MODE && (
+          <>
           {rankedUnlocked ? (
             <PillGroup label="Mode" value={mode} onChange={setMode} options={["Practice", "Ranked"]} />
           ) : (
@@ -1111,9 +1302,13 @@ If the agent used an effective technique that is NOT part of the approved object
               <p className="text-base text-slate-900 leading-relaxed">{starterText(starters.find((s) => s.id === starterId), language)}</p>
             </div>
           </div>
+          </>
+          )}
         </div>
 
         <div className="px-6 pb-8 pt-4 sticky bottom-0 bg-white border-t border-slate-100">
+          {!DEMO_MODE && (
+          <>
           <button onClick={startSession} disabled={!selectedAgentCode || verifyState !== "verified"}
             className="w-full bg-slate-900 text-white font-semibold rounded-lg py-3.5 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-800">
             <Phone size={17} /> Start the call <ChevronRight size={17} />
@@ -1122,6 +1317,8 @@ If the agent used an effective technique that is NOT part of the approved object
             <p className="text-center text-xs text-slate-400 mt-2.5">
               {!selectedAgentCode ? "Select your name from the approved list to continue." : "Enter and verify your access code to continue."}
             </p>
+          )}
+          </>
           )}
           <button onClick={() => setScreen("admin")} className="w-full text-center text-xs text-slate-300 mt-4 py-1">
             Admin
@@ -1162,14 +1359,24 @@ If the agent used an effective technique that is NOT part of the approved object
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  Today's Dashboard {dashboardData ? `— ${dashboardData.date}` : ""}
+                  Dashboard {dashboardData ? `— ${dashboardData.date}` : ""}
                 </h2>
-                <button onClick={() => loadDashboard(adminSecretInput.trim())} className="text-xs text-teal-700 font-medium">Refresh</button>
+                <button onClick={() => loadDashboard(adminSecretInput.trim(), dashboardRange)} className="text-xs text-teal-700 font-medium">Refresh</button>
+              </div>
+              <div className="flex gap-2 mb-3">
+                <button onClick={() => { setDashboardRange("all"); loadDashboard(adminSecretInput.trim(), "all"); }}
+                  className={`text-xs font-medium rounded-full px-3 py-1.5 border ${dashboardRange === "all" ? "bg-slate-900 text-white border-slate-900" : "border-slate-300 text-slate-600"}`}>
+                  All Time
+                </button>
+                <button onClick={() => { setDashboardRange("today"); loadDashboard(adminSecretInput.trim(), "today"); }}
+                  className={`text-xs font-medium rounded-full px-3 py-1.5 border ${dashboardRange === "today" ? "bg-slate-900 text-white border-slate-900" : "border-slate-300 text-slate-600"}`}>
+                  Today
+                </button>
               </div>
               {dashboardLoading ? (
                 <div className="text-sm text-slate-400">Loading…</div>
               ) : !dashboardData || dashboardData.totalSessions === 0 ? (
-                <div className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-4">No sessions yet today.</div>
+                <div className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-4">No sessions yet.</div>
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-2 mb-4">
@@ -1208,20 +1415,59 @@ If the agent used an effective technique that is NOT part of the approved object
                           </button>
                           {isOpen && (
                             <div className="border-t border-slate-200 bg-slate-50 divide-y divide-slate-200">
-                              {a.sessions.map((s) => (
+                              {a.sessions.map((s) => {
+                                const sessionOpen = expandedSessionId === s.sessionId;
+                                return (
                                 <div key={s.sessionId} className="px-4 py-3">
-                                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
-                                    <span>{s.time ? new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {s.mode} · {s.difficulty}</span>
-                                    <span className={`font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>{s.score ?? "—"}/100 · {s.pass || "—"}</span>
-                                  </div>
-                                  {s.improvement && (
-                                    <div className="text-xs text-slate-700"><span className="font-semibold text-teal-700">Focus: </span>{s.improvement}</div>
-                                  )}
-                                  {s.biggestMistake && (
-                                    <div className="text-xs text-slate-600 mt-1"><span className="font-semibold text-red-500">Mistake: </span>{s.biggestMistake}</div>
+                                  <button onClick={() => setExpandedSessionId(sessionOpen ? null : s.sessionId)} className="w-full text-left">
+                                    <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                                      <span>{s.time ? new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {s.mode} · {s.difficulty}</span>
+                                      <span className={`font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>{s.score ?? "—"}/100 · {s.pass || "—"}</span>
+                                    </div>
+                                    {s.prospectName && (
+                                      <div className="text-xs text-slate-400 mb-1">vs. {s.prospectName}{s.prospectLocation ? ` · ${s.prospectLocation}` : ""}</div>
+                                    )}
+                                    {s.improvement && (
+                                      <div className="text-xs text-slate-700"><span className="font-semibold text-teal-700">Focus: </span>{s.improvement}</div>
+                                    )}
+                                  </button>
+
+                                  {sessionOpen && (
+                                    <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
+                                      {s.categoryEvidence && (
+                                        <div>
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Category breakdown</div>
+                                          <div className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">{s.categoryEvidence}</div>
+                                        </div>
+                                      )}
+                                      {s.allMistakes && s.allMistakes.length > 0 && (
+                                        <div>
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-1.5">All mistakes</div>
+                                          <ul className="space-y-1">
+                                            {s.allMistakes.map((m, i) => (
+                                              <li key={i} className="text-xs text-slate-700 flex gap-1.5"><span className="text-red-400">•</span>{m}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      {s.thingsDoneWell && s.thingsDoneWell.length > 0 && (
+                                        <div>
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 mb-1.5">Things done well</div>
+                                          <ul className="space-y-1">
+                                            {s.thingsDoneWell.map((g, i) => (
+                                              <li key={i} className="text-xs text-slate-700 flex gap-1.5"><span className="text-teal-500">•</span>{g}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      {!s.categoryEvidence && s.biggestMistake && (
+                                        <div className="text-xs text-slate-600"><span className="font-semibold text-red-500">Mistake: </span>{s.biggestMistake}</div>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -1310,6 +1556,11 @@ If the agent used an effective technique that is NOT part of the approved object
   if (screen === "roleplay") {
     return (
       <div className="min-h-screen bg-white text-slate-900 flex flex-col">
+        {isAutoPlaying && (
+          <div className="bg-slate-900 text-white text-xs font-semibold text-center py-1.5 tracking-wide">
+            DEMO — MASTER INVITER — scripted, not a real graded session
+          </div>
+        )}
         <div className="px-5 pt-5 pb-4 bg-white border-b border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <div className="h-6" />
@@ -1405,17 +1656,17 @@ If the agent used an effective technique that is NOT part of the approved object
               </div>
             )}
             <div className="flex items-end gap-2">
-              <button onClick={listening ? stopMic : startMic}
-                className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+              <button onClick={listening ? stopMic : startMic} disabled={isAutoPlaying}
+                className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-colors disabled:opacity-30 ${
                   listening ? "bg-red-500 animate-pulse" : "bg-slate-100 border border-slate-200"
                 }`}>
                 <Mic size={18} className={listening ? "text-white" : "text-teal-700"} />
               </button>
-              <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} rows={2}
+              <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} rows={2} disabled={isAutoPlaying}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-                placeholder={listening ? "Listening…" : "Type or paste your line…"}
-                className="flex-1 bg-white border border-slate-300 rounded-2xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none overflow-y-auto" style={{ maxHeight: "280px" }} />
-              <button onClick={() => sendMessage(input)} disabled={sending || !input.trim()}
+                placeholder={isAutoPlaying ? "Demo playing automatically…" : listening ? "Listening…" : "Type or paste your line…"}
+                className="flex-1 bg-white border border-slate-300 rounded-2xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none overflow-y-auto disabled:opacity-50" style={{ maxHeight: "280px" }} />
+              <button onClick={() => sendMessage(input)} disabled={sending || !input.trim() || isAutoPlaying}
                 className="shrink-0 w-12 h-12 rounded-full bg-slate-900 disabled:bg-slate-200 flex items-center justify-center">
                 <Send size={16} className="text-white" />
               </button>
@@ -1442,17 +1693,22 @@ If the agent used an effective technique that is NOT part of the approved object
     }
     const passed = assessment.pass_status === "Pass" && assessment.compliance_result === "Pass";
     const scoreRows = [
-      ["Communication", assessment.communication, 25],
-      ["Objection Handling", assessment.objection_handling, 25],
-      ["Appointment Closing", assessment.appointment_closing, 20],
-      ["Listening", assessment.listening, 10],
-      ["Questioning", assessment.questioning, 10],
-      ["Confidence & Tone", assessment.confidence_tone, 5],
-      ["Script Intent", assessment.script_intent, 5],
+      ["Communication", assessment.communication, 25, assessment.communication_evidence],
+      ["Objection Handling", assessment.objection_handling, 25, assessment.objection_handling_evidence],
+      ["Appointment Closing", assessment.appointment_closing, 20, assessment.appointment_closing_evidence],
+      ["Listening", assessment.listening, 10, assessment.listening_evidence],
+      ["Questioning", assessment.questioning, 10, assessment.questioning_evidence],
+      ["Confidence & Tone", assessment.confidence_tone, 5, assessment.confidence_tone_evidence],
+      ["Script Intent", assessment.script_intent, 5, assessment.script_intent_evidence],
     ];
     return (
       <div className="min-h-screen bg-white text-slate-900 pb-10">
         <div className="px-6 pt-6 pb-2 border-b border-slate-100"><div className="h-7" /></div>
+        {mode === "Demo" && (
+          <div className="bg-slate-900 text-white text-xs font-semibold text-center py-1.5 tracking-wide">
+            DEMO — MASTER INVITER — scripted example, not a real graded session
+          </div>
+        )}
         <div className={`px-6 pt-8 pb-6 text-center border-b border-slate-100 ${passed ? "bg-teal-50/60" : "bg-red-50/60"}`}>
           {passed ? <CheckCircle2 className="mx-auto text-teal-600 mb-2" size={36} /> : <XCircle className="mx-auto text-red-500 mb-2" size={36} />}
           <div className="text-4xl font-bold text-slate-900">{assessment.overall}<span className="text-lg text-slate-400">/100</span></div>
@@ -1482,17 +1738,42 @@ If the agent used an effective technique that is NOT part of the approved object
 
         {showFullBreakdown && (
           <>
-            <div className="px-5 space-y-3 mt-2">
-              {scoreRows.map(([label, val, max]) => (
-                <div key={label} className="flex items-center gap-3">
-                  <div className="w-32 text-xs text-slate-500 shrink-0">{label}</div>
-                  <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-teal-600" style={{ width: `${(val / max) * 100}%` }} />
+            <div className="px-5 space-y-4 mt-2">
+              {scoreRows.map(([label, val, max, evidence]) => (
+                <div key={label}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-32 text-xs text-slate-500 shrink-0">{label}</div>
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-teal-600" style={{ width: `${(val / max) * 100}%` }} />
+                    </div>
+                    <div className="text-xs text-slate-600 w-10 text-right font-medium">{val}/{max}</div>
                   </div>
-                  <div className="text-xs text-slate-600 w-10 text-right font-medium">{val}/{max}</div>
+                  {evidence && <div className="text-xs text-slate-500 mt-1 ml-0 pl-0">{evidence}</div>}
                 </div>
               ))}
             </div>
+
+            {assessment.all_mistakes && assessment.all_mistakes.length > 0 && (
+              <div className="px-5 mt-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-2">Every mistake identified</div>
+                <ul className="space-y-1.5">
+                  {assessment.all_mistakes.map((m, i) => (
+                    <li key={i} className="text-sm text-slate-700 flex gap-2"><span className="text-red-400">•</span>{m}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {assessment.things_done_well && assessment.things_done_well.length > 0 && (
+              <div className="px-5 mt-5">
+                <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 mb-2">Everything done well</div>
+                <ul className="space-y-1.5">
+                  {assessment.things_done_well.map((g, i) => (
+                    <li key={i} className="text-sm text-slate-700 flex gap-2"><span className="text-teal-500">•</span>{g}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="px-5 mt-6 space-y-3">
               {assessment.strongest_sentence && <Card title="Strongest sentence" body={`"${assessment.strongest_sentence}"`} icon={<CheckCircle2 size={14} className="text-teal-600" />} />}
