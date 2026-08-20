@@ -31,6 +31,22 @@ async function airtableGet(path, token) {
   return data;
 }
 
+// Airtable caps every response at 100 records regardless of how many actually match — it
+// signals more data exists via an `offset` token that must be requeried explicitly. Without
+// following this, "All Time" would silently truncate to only the most recent 100 sessions
+// once the team's usage grows past that.
+async function airtableGetAllPages(path, token) {
+  let allRecords = [];
+  let offset = "";
+  do {
+    const pageUrl = offset ? `${path}&offset=${offset}` : path;
+    const data = await airtableGet(pageUrl, token);
+    allRecords = allRecords.concat(data.records || []);
+    offset = data.offset || "";
+  } while (offset);
+  return { records: allRecords };
+}
+
 export default async function handler(req, res) {
   const token = process.env.AIRTABLE_TOKEN;
   if (!token) {
@@ -54,10 +70,10 @@ export default async function handler(req, res) {
         : `IS_SAME({Session Date-Time}, TODAY(), "day")`;
       filterFormula = encodeURIComponent(`AND({Valid Session} = TRUE(), ${dateFormula})`);
     }
-    const fields = ["Session ID", "Agent Code Submitted", "Session Date-Time", "Overall Score", "Pass Status", "Mode", "Difficulty", "Appointment Outcome", "Prospect"]
+    const fields = ["Session ID", "Agent Code Submitted", "Session Date-Time", "Overall Score", "Pass Status", "Mode", "Difficulty", "Appointment Outcome", "Prospect", "Full Transcript"]
       .map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
 
-    const sessionsData = await airtableGet(
+    const sessionsData = await airtableGetAllPages(
       `${TABLE_TRAINING_SESSIONS}?filterByFormula=${filterFormula}&${fields}&sort[0][field]=Session%20Date-Time&sort[0][direction]=desc`,
       token
     );
@@ -71,6 +87,7 @@ export default async function handler(req, res) {
       mode: r.fields["Mode"] || "",
       difficulty: r.fields["Difficulty"] || "",
       outcome: r.fields["Appointment Outcome"] || "",
+      transcript: r.fields["Full Transcript"] || "",
       prospectRecordId: (r.fields["Prospect"] || [])[0] || "",
       prospectName: "",
       prospectLocation: "",
@@ -110,7 +127,7 @@ export default async function handler(req, res) {
       );
       const crFields = ["Coaching Report ID", "One Biggest Mistake", "One Highest-Impact Improvement", "Category Evidence", "All Mistakes", "Things Done Well"]
         .map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
-      const crData = await airtableGet(`${TABLE_COACHING_REPORTS}?filterByFormula=${crFormula}&${crFields}`, token);
+      const crData = await airtableGetAllPages(`${TABLE_COACHING_REPORTS}?filterByFormula=${crFormula}&${crFields}`, token);
       const bySessionId = {};
       (crData.records || []).forEach((r) => {
         const crId = r.fields["Coaching Report ID"] || "";
