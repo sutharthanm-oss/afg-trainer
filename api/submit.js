@@ -61,7 +61,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { agentCode, sessionId, mode, language, difficulty, starterId, assessment } = req.body || {};
+  const { agentCode, sessionId, mode, language, difficulty, starterId, assessment, transcript } = req.body || {};
   if (!agentCode || !sessionId || !assessment) {
     res.status(400).json({ error: "Missing agentCode, sessionId, or assessment in request body." });
     return;
@@ -110,6 +110,7 @@ export default async function handler(req, res) {
               "Compliance Result": assessment.compliance_result,
               "Compliance Issue": assessment.compliance_issue || "",
               "AI Assessment Confidence": assessment.ai_confidence,
+              "Full Transcript": transcript || "",
               "Valid Session": true,
               "Agent": [agentRecordId],
             },
@@ -133,13 +134,13 @@ export default async function handler(req, res) {
               "Pass or Retry": assessment.pass_status,
               "AI Confidence": assessment.ai_confidence,
               "Category Evidence": [
-                `Communication (${assessment.communication}/25): ${assessment.communication_evidence || ""}`,
-                `Objection Handling (${assessment.objection_handling}/25): ${assessment.objection_handling_evidence || ""}`,
-                `Appointment Closing (${assessment.appointment_closing}/20): ${assessment.appointment_closing_evidence || ""}`,
-                `Listening (${assessment.listening}/10): ${assessment.listening_evidence || ""}`,
-                `Questioning (${assessment.questioning}/10): ${assessment.questioning_evidence || ""}`,
-                `Confidence & Tone (${assessment.confidence_tone}/5): ${assessment.confidence_tone_evidence || ""}`,
-                `Script Intent (${assessment.script_intent}/5): ${assessment.script_intent_evidence || ""}`,
+                `Communication (${assessment.communication}/25): ${assessment.communication_evidence || ""} | Improve: ${assessment.communication_improvement || ""}`,
+                `Objection Handling (${assessment.objection_handling}/25): ${assessment.objection_handling_evidence || ""} | Improve: ${assessment.objection_handling_improvement || ""}`,
+                `Appointment Closing (${assessment.appointment_closing}/20): ${assessment.appointment_closing_evidence || ""} | Improve: ${assessment.appointment_closing_improvement || ""}`,
+                `Listening (${assessment.listening}/10): ${assessment.listening_evidence || ""} | Improve: ${assessment.listening_improvement || ""}`,
+                `Questioning (${assessment.questioning}/10): ${assessment.questioning_evidence || ""} | Improve: ${assessment.questioning_improvement || ""}`,
+                `Confidence & Tone (${assessment.confidence_tone}/5): ${assessment.confidence_tone_evidence || ""} | Improve: ${assessment.confidence_tone_improvement || ""}`,
+                `Script Intent (${assessment.script_intent}/5): ${assessment.script_intent_evidence || ""} | Improve: ${assessment.script_intent_improvement || ""}`,
               ].join("\n"),
               "One Biggest Mistake": assessment.one_biggest_mistake || "",
               "One Highest-Impact Improvement": assessment.highest_impact_improvement || "",
