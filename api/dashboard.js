@@ -1,11 +1,13 @@
-// GET /api/dashboard?date=YYYY-MM-DD (optional, defaults to today)
-// Admin-secret protected. Returns every valid session for that day, aggregated per agent,
-// including each session's biggest mistake and highest-impact improvement. Quick Practice
+// GET /api/dashboard?date=YYYY-MM-DD (optional, defaults to today)&range=all (optional)
+// Admin-secret protected. Returns every valid session for that day (or all time), aggregated
+// per agent, including the prospect used, full category-by-category evidence, every mistake,
+// and everything done well — not just a single headline mistake/improvement. Quick Practice
 // sessions are included automatically — they're stored identically to any other session.
 
 const BASE_ID = "appAHmJKtNi508bIw";
 const TABLE_TRAINING_SESSIONS = "tblAQaxG82bN14ppM";
 const TABLE_COACHING_REPORTS = "tblxfhYiBFcG5McId";
+const TABLE_PROSPECTS = "tblMpttghkw3QrZ0E";
 
 function checkAdminSecret(req) {
   const provided = req.headers["x-admin-secret"];
@@ -42,11 +44,17 @@ export default async function handler(req, res) {
 
   try {
     const dateParam = (req.query && req.query.date) || "";
-    const dateFormula = dateParam
-      ? `IS_SAME({Session Date-Time}, DATETIME_PARSE("${dateParam}", "YYYY-MM-DD"), "day")`
-      : `IS_SAME({Session Date-Time}, TODAY(), "day")`;
-    const filterFormula = encodeURIComponent(`AND({Valid Session} = TRUE(), ${dateFormula})`);
-    const fields = ["Session ID", "Agent Code Submitted", "Session Date-Time", "Overall Score", "Pass Status", "Mode", "Difficulty", "Appointment Outcome"]
+    const range = (req.query && req.query.range) || "";
+    let filterFormula;
+    if (range === "all") {
+      filterFormula = encodeURIComponent(`{Valid Session} = TRUE()`);
+    } else {
+      const dateFormula = dateParam
+        ? `IS_SAME({Session Date-Time}, DATETIME_PARSE("${dateParam}", "YYYY-MM-DD"), "day")`
+        : `IS_SAME({Session Date-Time}, TODAY(), "day")`;
+      filterFormula = encodeURIComponent(`AND({Valid Session} = TRUE(), ${dateFormula})`);
+    }
+    const fields = ["Session ID", "Agent Code Submitted", "Session Date-Time", "Overall Score", "Pass Status", "Mode", "Difficulty", "Appointment Outcome", "Prospect"]
       .map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
 
     const sessionsData = await airtableGet(
@@ -63,9 +71,36 @@ export default async function handler(req, res) {
       mode: r.fields["Mode"] || "",
       difficulty: r.fields["Difficulty"] || "",
       outcome: r.fields["Appointment Outcome"] || "",
+      prospectRecordId: (r.fields["Prospect"] || [])[0] || "",
+      prospectName: "",
+      prospectLocation: "",
       biggestMistake: "",
       improvement: "",
+      categoryEvidence: "",
+      allMistakes: [],
+      thingsDoneWell: [],
     }));
+
+    // Resolve prospect names/locations. The Prospect Library is small (dozens of records),
+    // so fetching it once per request and matching by record ID is simpler and more
+    // reliable than per-session lookups.
+    const prospectIds = [...new Set(sessions.map((s) => s.prospectRecordId).filter(Boolean))];
+    if (prospectIds.length > 0) {
+      const prospectFormula = encodeURIComponent("OR(" + prospectIds.map((id) => `RECORD_ID()="${id}"`).join(",") + ")");
+      const prospectFields = ["Fictional Name", "Market Type"].map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
+      const prospectData = await airtableGet(`${TABLE_PROSPECTS}?filterByFormula=${prospectFormula}&${prospectFields}`, token);
+      const byRecordId = {};
+      (prospectData.records || []).forEach((r) => {
+        byRecordId[r.id] = { name: r.fields["Fictional Name"] || "", location: r.fields["Market Type"] || "" };
+      });
+      sessions.forEach((s) => {
+        const match = byRecordId[s.prospectRecordId];
+        if (match) {
+          s.prospectName = match.name;
+          s.prospectLocation = match.location;
+        }
+      });
+    }
 
     // Coaching Reports are named "CR-<sessionId>" by /api/submit.js — use that directly
     // instead of resolving linked-record IDs, which keeps this to a single extra request.
@@ -73,7 +108,7 @@ export default async function handler(req, res) {
       const crFormula = encodeURIComponent(
         "OR(" + sessions.map((s) => `{Coaching Report ID}="CR-${s.sessionId}"`).join(",") + ")"
       );
-      const crFields = ["Coaching Report ID", "One Biggest Mistake", "One Highest-Impact Improvement"]
+      const crFields = ["Coaching Report ID", "One Biggest Mistake", "One Highest-Impact Improvement", "Category Evidence", "All Mistakes", "Things Done Well"]
         .map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
       const crData = await airtableGet(`${TABLE_COACHING_REPORTS}?filterByFormula=${crFormula}&${crFields}`, token);
       const bySessionId = {};
@@ -83,6 +118,9 @@ export default async function handler(req, res) {
         bySessionId[sid] = {
           mistake: r.fields["One Biggest Mistake"] || "",
           improvement: r.fields["One Highest-Impact Improvement"] || "",
+          categoryEvidence: r.fields["Category Evidence"] || "",
+          allMistakes: (r.fields["All Mistakes"] || "").split("\n").map((s) => s.replace(/^•\s*/, "")).filter(Boolean),
+          thingsDoneWell: (r.fields["Things Done Well"] || "").split("\n").map((s) => s.replace(/^•\s*/, "")).filter(Boolean),
         };
       });
       sessions.forEach((s) => {
@@ -90,6 +128,9 @@ export default async function handler(req, res) {
         if (match) {
           s.biggestMistake = match.mistake;
           s.improvement = match.improvement;
+          s.categoryEvidence = match.categoryEvidence;
+          s.allMistakes = match.allMistakes;
+          s.thingsDoneWell = match.thingsDoneWell;
         }
       });
     }
@@ -120,7 +161,7 @@ export default async function handler(req, res) {
     const allScores = sessions.map((s) => s.score).filter((s) => typeof s === "number");
 
     res.status(200).json({
-      date: dateParam || new Date().toISOString().slice(0, 10),
+      date: range === "all" ? "All Time" : (dateParam || new Date().toISOString().slice(0, 10)),
       totalSessions: sessions.length,
       uniqueAgents: agents.length,
       averageScore: allScores.length ? Math.round(allScores.reduce((x, y) => x + y, 0) / allScores.length) : null,
