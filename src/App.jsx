@@ -745,11 +745,13 @@ For EVERY one of the 7 category scores, you must give a short, specific, evidenc
 
 List EVERY distinct mistake you can identify (not just the single biggest one) — each as a short, specific, standalone point. Same for strengths — list EVERY distinct thing the agent did well, not just one. Use empty arrays if genuinely none apply, but do not pad the lists with filler either.
 
+For EVERY one of the 7 categories, also give a specific, actionable "how to improve" recommendation — a concrete action the agent can take next time, not a vague restatement like "communicate better". If a category already scored full marks, the improvement field should say what to keep doing to maintain that, not invent a fake weakness.
+
 Conversation starter used (${language}): "${starterText(starter, language)}"
 End reason: ${endReason}
 
 Respond with ONLY valid JSON in this exact shape:
-{"communication":0,"communication_evidence":"","objection_handling":0,"objection_handling_evidence":"","appointment_closing":0,"appointment_closing_evidence":"","listening":0,"listening_evidence":"","questioning":0,"questioning_evidence":"","confidence_tone":0,"confidence_tone_evidence":"","script_intent":0,"script_intent_evidence":"","overall":0,"pass_status":"Pass or Retry","appointment_outcome":"Secured or Not Secured","compliance_result":"Pass or Fail","compliance_issue":"","ai_confidence":0,"one_biggest_mistake":"","highest_impact_improvement":"","strongest_sentence":"","strongest_question":"","better_response":"","better_close":"","full_report":"","flagged_technique":"","flagged_technique_reason":"","all_mistakes":[],"things_done_well":[]}
+{"communication":0,"communication_evidence":"","communication_improvement":"","objection_handling":0,"objection_handling_evidence":"","objection_handling_improvement":"","appointment_closing":0,"appointment_closing_evidence":"","appointment_closing_improvement":"","listening":0,"listening_evidence":"","listening_improvement":"","questioning":0,"questioning_evidence":"","questioning_improvement":"","confidence_tone":0,"confidence_tone_evidence":"","confidence_tone_improvement":"","script_intent":0,"script_intent_evidence":"","script_intent_improvement":"","overall":0,"pass_status":"Pass or Retry","appointment_outcome":"Secured or Not Secured","compliance_result":"Pass or Fail","compliance_issue":"","ai_confidence":0,"one_biggest_mistake":"","highest_impact_improvement":"","strongest_sentence":"","strongest_question":"","better_response":"","better_close":"","full_report":"","flagged_technique":"","flagged_technique_reason":"","all_mistakes":[],"things_done_well":[]}
 
 If the agent used an effective technique that is NOT part of the approved objection library or standard script (per AI Constitution Article 24), briefly describe it in flagged_technique and explain why it worked in flagged_technique_reason. Leave both as empty strings if nothing notable falls outside the approved library. This flag is for Admin review only — it does not affect the score.`;
 
@@ -880,6 +882,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
       const MAX_EXCHANGES = 4;
       let closingLine = "";
+      let naturalEnd = false;
       const overrides = { prospect: p, objections: objs, starterId: randomStarter.id, language: "English" };
       for (let i = 0; i < MAX_EXCHANGES; i++) {
         setAutoPlayTypingAs("prospect");
@@ -887,7 +890,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         setAutoPlayTypingAs("");
         pushMessage({ role: "assistant", text: prospectTurn.reply });
         await sleep(900);
-        if (prospectTurn.endRoleplay) break;
+        if (prospectTurn.endRoleplay) { naturalEnd = true; break; }
 
         const isLastTurn = i === MAX_EXCHANGES - 1;
         setAutoPlayTypingAs("agent");
@@ -895,6 +898,18 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         setAutoPlayTypingAs("");
         closingLine = agentLine;
         pushMessage({ role: "user", text: agentLine });
+        await sleep(900);
+      }
+
+      // If the loop ended because we hit the round cap — not because the prospect had
+      // already confirmed and ended things naturally — the conversation would otherwise
+      // stop right on the agent's own closing proposal, with no reply. Get one final
+      // prospect line responding to that close so the conversation actually finishes.
+      if (!naturalEnd) {
+        setAutoPlayTypingAs("prospect");
+        const finalTurn = await generateProspectLine(overrides);
+        setAutoPlayTypingAs("");
+        pushMessage({ role: "assistant", text: finalTurn.reply });
         await sleep(900);
       }
 
@@ -1010,11 +1025,18 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
     heading("Category Scores", 12);
     [
-      ["Communication", assessment.communication, 25], ["Objection Handling", assessment.objection_handling, 25],
-      ["Appointment Closing", assessment.appointment_closing, 20], ["Listening", assessment.listening, 10],
-      ["Questioning", assessment.questioning, 10], ["Confidence & Tone", assessment.confidence_tone, 5],
-      ["Script Intent", assessment.script_intent, 5],
-    ].forEach(([label, val, max]) => body(`${label}: ${val}/${max}`));
+      ["Communication", assessment.communication, 25, assessment.communication_evidence, assessment.communication_improvement],
+      ["Objection Handling", assessment.objection_handling, 25, assessment.objection_handling_evidence, assessment.objection_handling_improvement],
+      ["Appointment Closing", assessment.appointment_closing, 20, assessment.appointment_closing_evidence, assessment.appointment_closing_improvement],
+      ["Listening", assessment.listening, 10, assessment.listening_evidence, assessment.listening_improvement],
+      ["Questioning", assessment.questioning, 10, assessment.questioning_evidence, assessment.questioning_improvement],
+      ["Confidence & Tone", assessment.confidence_tone, 5, assessment.confidence_tone_evidence, assessment.confidence_tone_improvement],
+      ["Script Intent", assessment.script_intent, 5, assessment.script_intent_evidence, assessment.script_intent_improvement],
+    ].forEach(([label, val, max, evidence, improvement]) => {
+      heading(`${label}: ${val}/${max}`, 11);
+      if (evidence) body("Why: " + evidence);
+      if (improvement) body("Improve: " + improvement);
+    });
     rule();
 
     heading("Your #1 Focus", 12);
@@ -1836,13 +1858,13 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     }
     const passed = assessment.pass_status === "Pass" && assessment.compliance_result === "Pass";
     const scoreRows = [
-      ["Communication", assessment.communication, 25, assessment.communication_evidence],
-      ["Objection Handling", assessment.objection_handling, 25, assessment.objection_handling_evidence],
-      ["Appointment Closing", assessment.appointment_closing, 20, assessment.appointment_closing_evidence],
-      ["Listening", assessment.listening, 10, assessment.listening_evidence],
-      ["Questioning", assessment.questioning, 10, assessment.questioning_evidence],
-      ["Confidence & Tone", assessment.confidence_tone, 5, assessment.confidence_tone_evidence],
-      ["Script Intent", assessment.script_intent, 5, assessment.script_intent_evidence],
+      ["Communication", assessment.communication, 25, assessment.communication_evidence, assessment.communication_improvement],
+      ["Objection Handling", assessment.objection_handling, 25, assessment.objection_handling_evidence, assessment.objection_handling_improvement],
+      ["Appointment Closing", assessment.appointment_closing, 20, assessment.appointment_closing_evidence, assessment.appointment_closing_improvement],
+      ["Listening", assessment.listening, 10, assessment.listening_evidence, assessment.listening_improvement],
+      ["Questioning", assessment.questioning, 10, assessment.questioning_evidence, assessment.questioning_improvement],
+      ["Confidence & Tone", assessment.confidence_tone, 5, assessment.confidence_tone_evidence, assessment.confidence_tone_improvement],
+      ["Script Intent", assessment.script_intent, 5, assessment.script_intent_evidence, assessment.script_intent_improvement],
     ];
     return (
       <div className="min-h-screen bg-white text-slate-900 pb-10">
@@ -1881,19 +1903,31 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
         {showFullBreakdown && (
           <>
-            <div className="px-5 space-y-4 mt-2">
-              {scoreRows.map(([label, val, max, evidence]) => (
-                <div key={label}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-32 text-xs text-slate-500 shrink-0">{label}</div>
-                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-teal-600" style={{ width: `${(val / max) * 100}%` }} />
-                    </div>
-                    <div className="text-xs text-slate-600 w-10 text-right font-medium">{val}/{max}</div>
-                  </div>
-                  {evidence && <div className="text-xs text-slate-500 mt-1 ml-0 pl-0">{evidence}</div>}
-                </div>
-              ))}
+            <div className="px-5 mt-2">
+              <div className="overflow-x-auto -mx-1 rounded-lg border border-slate-200">
+                <table className="w-full text-xs border-collapse min-w-[540px]">
+                  <thead>
+                    <tr className="bg-slate-900 text-white">
+                      <th className="text-left font-semibold px-3 py-2.5 w-28">Category</th>
+                      <th className="text-left font-semibold px-3 py-2.5 w-52">Why This Score</th>
+                      <th className="text-left font-semibold px-3 py-2.5 w-52">How to Improve</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scoreRows.map(([label, val, max, evidence, improvement], i) => (
+                      <tr key={label} className={`border-t border-slate-100 ${i % 2 === 0 ? "bg-slate-50" : "bg-white"}`}>
+                        <td className="px-3 py-3 align-top">
+                          <div className="font-semibold text-slate-800">{label}</div>
+                          <div className={`text-xs font-medium mt-0.5 ${val === max ? "text-teal-600" : "text-slate-500"}`}>{val}/{max}</div>
+                        </td>
+                        <td className="px-3 py-3 align-top text-slate-600 leading-relaxed">{evidence || "—"}</td>
+                        <td className="px-3 py-3 align-top text-slate-600 leading-relaxed">{improvement || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">Swipe left/right to see the full table →</p>
             </div>
 
             {assessment.all_mistakes && assessment.all_mistakes.length > 0 && (
