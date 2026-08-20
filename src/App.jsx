@@ -256,6 +256,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState([]);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [autoPlayTypingAs, setAutoPlayTypingAs] = useState(""); // "agent" | "prospect" | ""
   const messagesRef = useRef([]);
   const [input, setInput] = useState("");
   const [listening, setListening] = useState(false);
@@ -861,13 +862,17 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
       const MAX_EXCHANGES = 4;
       let closingLine = "";
       for (let i = 0; i < MAX_EXCHANGES; i++) {
+        setAutoPlayTypingAs("prospect");
         const prospectTurn = await generateProspectLine();
+        setAutoPlayTypingAs("");
         pushMessage({ role: "assistant", text: prospectTurn.reply });
         await sleep(900);
         if (prospectTurn.endRoleplay) break;
 
         const isLastTurn = i === MAX_EXCHANGES - 1;
+        setAutoPlayTypingAs("agent");
         const agentLine = await generateMasterAgentLine(isLastTurn);
+        setAutoPlayTypingAs("");
         closingLine = agentLine;
         pushMessage({ role: "user", text: agentLine });
         await sleep(900);
@@ -883,6 +888,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
       setScreen("assessment");
     } finally {
       setIsAutoPlaying(false);
+      setAutoPlayTypingAs("");
     }
   }
 
@@ -1610,6 +1616,17 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
             <div className="flex justify-start">
               <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3">
                 <Loader2 size={14} className="animate-spin text-slate-400" />
+              </div>
+            </div>
+          )}
+          {autoPlayTypingAs && (
+            <div className={`flex ${autoPlayTypingAs === "agent" ? "justify-end" : "justify-start"}`}>
+              <div className={`rounded-2xl px-4 py-3 flex items-center gap-1.5 ${
+                autoPlayTypingAs === "agent" ? "bg-slate-900 rounded-br-sm" : "bg-white border border-slate-200 rounded-bl-sm"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full animate-bounce ${autoPlayTypingAs === "agent" ? "bg-white/60" : "bg-slate-300"}`} style={{ animationDelay: "0ms" }} />
+                <span className={`w-1.5 h-1.5 rounded-full animate-bounce ${autoPlayTypingAs === "agent" ? "bg-white/60" : "bg-slate-300"}`} style={{ animationDelay: "150ms" }} />
+                <span className={`w-1.5 h-1.5 rounded-full animate-bounce ${autoPlayTypingAs === "agent" ? "bg-white/60" : "bg-slate-300"}`} style={{ animationDelay: "300ms" }} />
               </div>
             </div>
           )}
