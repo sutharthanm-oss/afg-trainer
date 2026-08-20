@@ -266,6 +266,7 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [roleplayEnded, setRoleplayEnded] = useState(false);
+  const [pendingEndReason, setPendingEndReason] = useState("");
   const [showScript, setShowScript] = useState(true);
   const [assessment, setAssessment] = useState(null);
   const [assessing, setAssessing] = useState(false);
@@ -733,7 +734,9 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
   function endRoleplay(reason) {
     clearInterval(timerRef.current);
     setRoleplayEnded(true);
-    runAssessment(reason);
+    setPendingEndReason(reason);
+    // Deliberately does NOT call runAssessment() here — the agent reads back through the
+    // conversation first and taps "Next" (rendered below) when ready to actually be scored.
   }
 
   async function runAssessment(endReason) {
@@ -786,7 +789,9 @@ If the agent used an effective technique that is NOT part of the approved object
     return `You are playing a master-level, top-performing insurance appointment-setting agent in a scripted product demonstration. You are speaking with a fictional prospect. Handle whatever they say smoothly and briefly using natural, proven techniques (acknowledge the concern, reframe it, redirect toward the appointment) — never sound robotic or scripted, sound like a confident real person. Keep each response to 1-3 natural sentences, like real speech, in ${lang === "Manglish" ? "natural Manglish (mixed English/Malay)" : lang}.
 
 Conversation starter already used to open (do not repeat it): "${starterText(starter, lang)}"
-${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask another open question." : ""}
+
+RULE: The appointment is always a 45-minute meeting. Never propose, agree to, or mention any other duration (not 15, not 20, not 30 minutes) at any point in the conversation — this applies from your very first mention of time commitment through to the final close.
+${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, the 45-minute duration, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask another open question." : ""}
 
 Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says next>"}`;
   }
@@ -843,10 +848,15 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
   }
 
   async function runMasterInviterDemo() {
-    if (!selectedAgentCode || verifyState !== "verified") {
-      alert("Please select your name and verify your access code first.");
-      return;
-    }
+    // No agent login required — this is a scripted, password-gated demo, not tied to any
+    // individual agent's real record (Submit Assessment is already disabled for it). If
+    // someone happens to already be logged in, keep showing their real name; otherwise
+    // fall back to a generic label so the transcript and PDF don't show blanks.
+    const demoAgentName = agentName || "CallSpar Demo";
+    const demoAgentCode = agentCode || "DEMO";
+    if (!agentName) setAgentName(demoAgentName);
+    if (!agentCode) setAgentCode(demoAgentCode);
+
     const randomStarter = pick(starters);
     const p = pick(prospectLibrary);
     const objs = pickThreeObjections(objectionLibrary, "Beginner");
@@ -856,7 +866,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     setMode("Demo");
     setProspect(p);
     setObjections(objs);
-    setSessionId(newSessionId(agentCode));
+    setSessionId(newSessionId(demoAgentCode));
     setMessages([]);
     messagesRef.current = [];
     setSeconds(0);
@@ -916,14 +926,15 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         await sleep(900);
       }
 
+      // Deliberately stay on the roleplay screen instead of auto-jumping to the score —
+      // the whole point of watching Master Inviter is to actually read the conversation.
+      // The agent taps "Next" (rendered below) when ready to see the score and report.
       setRoleplayEnded(true);
       setAssessment(buildPerfectDemoAssessment(closingLine));
-      setScreen("assessment");
     } catch (e) {
       pushMessage({ role: "assistant", text: "(Demo interrupted: " + e.message + ")" });
       setRoleplayEnded(true);
       setAssessment(buildPerfectDemoAssessment(""));
-      setScreen("assessment");
     } finally {
       setIsAutoPlaying(false);
       setAutoPlayTypingAs("");
@@ -1255,6 +1266,46 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
         <div className="flex-1 px-6 space-y-6 py-6">
           <div>
+            {godModeUnlocked ? (
+              <button onClick={runMasterInviterDemo}
+                className="w-full bg-slate-900 text-white font-semibold rounded-lg py-3 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+                <Award size={16} /> Master Inviter
+              </button>
+            ) : (
+              <div>
+                {!showGodModeUnlock ? (
+                  <button onClick={() => setShowGodModeUnlock(true)}
+                    className="w-full text-center text-xs text-slate-400 py-2 underline">
+                    Master Inviter — password required
+                  </button>
+                ) : (
+                  <div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input type={showGodModePassword ? "text" : "password"} value={godModePassword}
+                          onChange={(e) => { setGodModePassword(e.target.value); setGodModeUnlockState("idle"); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") unlockGodMode(); }}
+                          placeholder="Admin password"
+                          className="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                        <button type="button" onClick={() => setShowGodModePassword((v) => !v)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                          {showGodModePassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <button onClick={unlockGodMode} disabled={godModeUnlockState === "checking"}
+                        className="bg-slate-900 text-white text-xs font-medium rounded-lg px-4 disabled:opacity-40">
+                        {godModeUnlockState === "checking" ? "…" : "Unlock"}
+                      </button>
+                    </div>
+                    {godModeUnlockState === "error" && (
+                      <div className="text-xs text-red-600 mt-1.5">Incorrect password.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="border-t border-slate-100 pt-6">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 block">Agent</label>
             {agentListState === "loading" && (
               <div className="flex items-center gap-2 text-slate-500 text-sm bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
@@ -1321,45 +1372,6 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                       <Phone size={16} /> Quick Practice (random, Beginner)
                     </button>
                     {!DEMO_MODE && <p className="text-center text-xs text-slate-400 mt-1.5">Or customize your session below</p>}
-
-                    {godModeUnlocked ? (
-                      <button onClick={runMasterInviterDemo}
-                        className="w-full mt-2.5 bg-slate-900 text-white font-semibold rounded-lg py-3 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
-                        <Award size={16} /> Master Inviter
-                      </button>
-                    ) : (
-                      <div className="mt-2.5">
-                        {!showGodModeUnlock ? (
-                          <button onClick={() => setShowGodModeUnlock(true)}
-                            className="w-full text-center text-xs text-slate-400 py-2 underline">
-                            Master Inviter — password required
-                          </button>
-                        ) : (
-                          <div>
-                            <div className="flex gap-2">
-                              <div className="relative flex-1">
-                                <input type={showGodModePassword ? "text" : "password"} value={godModePassword}
-                                  onChange={(e) => { setGodModePassword(e.target.value); setGodModeUnlockState("idle"); }}
-                                  onKeyDown={(e) => { if (e.key === "Enter") unlockGodMode(); }}
-                                  placeholder="Admin password"
-                                  className="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                                <button type="button" onClick={() => setShowGodModePassword((v) => !v)}
-                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                  {showGodModePassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
-                              </div>
-                              <button onClick={unlockGodMode} disabled={godModeUnlockState === "checking"}
-                                className="bg-slate-900 text-white text-xs font-medium rounded-lg px-4 disabled:opacity-40">
-                                {godModeUnlockState === "checking" ? "…" : "Unlock"}
-                              </button>
-                            </div>
-                            {godModeUnlockState === "error" && (
-                              <div className="text-xs text-red-600 mt-1.5">Incorrect password.</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -1388,6 +1400,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                 )}
               </div>
             )}
+          </div>
           </div>
 
           {!DEMO_MODE && (
@@ -1788,6 +1801,22 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
           <div className="px-5 py-6 border-t border-slate-100 text-center bg-white">
             {assessing ? (
               <div className="flex items-center justify-center gap-2 text-slate-500 text-sm"><Loader2 size={16} className="animate-spin" /> Generating your certified assessment…</div>
+            ) : mode === "Demo" && assessment ? (
+              <div>
+                <div className="text-slate-500 text-sm mb-3">Demo complete — read back through the conversation above, then continue when you're ready.</div>
+                <button onClick={() => setScreen("assessment")}
+                  className="w-full bg-slate-900 text-white font-semibold rounded-lg py-3 flex items-center justify-center gap-2">
+                  Next: See Score & Report <ChevronRight size={16} />
+                </button>
+              </div>
+            ) : !assessment ? (
+              <div>
+                <div className="text-slate-500 text-sm mb-3">Call ended — read back through the conversation above, then continue when you're ready.</div>
+                <button onClick={() => runAssessment(pendingEndReason)}
+                  className="w-full bg-slate-900 text-white font-semibold rounded-lg py-3 flex items-center justify-center gap-2">
+                  Next: See Score & Report <ChevronRight size={16} />
+                </button>
+              </div>
             ) : (
               <div className="text-slate-500 text-sm">Call ended.</div>
             )}
