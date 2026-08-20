@@ -37,7 +37,7 @@ async function airtableFetch(baseId, path, token, options = {}) {
 async function notifyTelegram(text) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!botToken || !chatId) return; // Not configured — silently skip, never block submission on this.
+  if (!botToken || !chatId) return; // Not configured â silently skip, never block submission on this.
   try {
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
@@ -132,8 +132,19 @@ export default async function handler(req, res) {
               "Overall Score": assessment.overall,
               "Pass or Retry": assessment.pass_status,
               "AI Confidence": assessment.ai_confidence,
+              "Category Evidence": [
+                `Communication (${assessment.communication}/25): ${assessment.communication_evidence || ""}`,
+                `Objection Handling (${assessment.objection_handling}/25): ${assessment.objection_handling_evidence || ""}`,
+                `Appointment Closing (${assessment.appointment_closing}/20): ${assessment.appointment_closing_evidence || ""}`,
+                `Listening (${assessment.listening}/10): ${assessment.listening_evidence || ""}`,
+                `Questioning (${assessment.questioning}/10): ${assessment.questioning_evidence || ""}`,
+                `Confidence & Tone (${assessment.confidence_tone}/5): ${assessment.confidence_tone_evidence || ""}`,
+                `Script Intent (${assessment.script_intent}/5): ${assessment.script_intent_evidence || ""}`,
+              ].join("\n"),
               "One Biggest Mistake": assessment.one_biggest_mistake || "",
               "One Highest-Impact Improvement": assessment.highest_impact_improvement || "",
+              "All Mistakes": (assessment.all_mistakes || []).map((m) => `â¢ ${m}`).join("\n"),
+              "Things Done Well": (assessment.things_done_well || []).map((g) => `â¢ ${g}`).join("\n"),
               "Strongest Sentence": assessment.strongest_sentence || "",
               "Strongest Question": assessment.strongest_question || "",
               "Better Response": assessment.better_response || "",
@@ -149,7 +160,7 @@ export default async function handler(req, res) {
     });
 
     // 5. If the assessment flagged an effective-but-unapproved technique, log it for Admin
-    // review and ping Telegram — but never let a problem here fail the actual submission.
+    // review and ping Telegram â but never let a problem here fail the actual submission.
     if (assessment.flagged_technique && assessment.flagged_technique.trim()) {
       try {
         await airtableFetch(FLAGS_BASE_ID, TABLE_FLAGGED_TECHNIQUES, token, {
@@ -172,10 +183,10 @@ export default async function handler(req, res) {
           }),
         });
         await notifyTelegram(
-          `🚩 <b>New technique flagged for review</b>\n\nAgent: ${agentCode}\nSession: ${sessionId}\n\n${assessment.flagged_technique}\n\n<i>${assessment.flagged_technique_reason || ""}</i>\n\nOpen CallSpar Admin → Flagged Techniques to review.`
+          `ð© <b>New technique flagged for review</b>\n\nAgent: ${agentCode}\nSession: ${sessionId}\n\n${assessment.flagged_technique}\n\n<i>${assessment.flagged_technique_reason || ""}</i>\n\nOpen CallSpar Admin â Flagged Techniques to review.`
         );
       } catch (flagErr) {
-        // Swallow — a failed flag/notification should not block a successful session submission.
+        // Swallow â a failed flag/notification should not block a successful session submission.
       }
     }
 
