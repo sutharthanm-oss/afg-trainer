@@ -1190,22 +1190,31 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
     doc.setFont(undefined, "bold").setFontSize(18).setTextColor(22, 40, 60);
     doc.text("CallSpar - Appointment Sparring", marginX, y);
-    y += 22;
-    doc.setFont(undefined, "normal").setFontSize(11).setTextColor(90, 90, 90);
+    y += 26;
+    doc.setFont(undefined, "bold").setFontSize(20).setTextColor(22, 40, 60);
     doc.text("Session Report", marginX, y);
-    y += 24;
+    y += 28;
 
     heading("Session Details", 12);
-    body(`Agent: ${agentName} (${agentCode})`);
-    body(`Session ID: ${sessionId}`);
-    body(`Date: ${new Date().toLocaleString()}`);
-    body(`Mode: ${mode}  ·  Language: ${language}  ·  Difficulty: ${difficulty}  ·  Starter: ${starterId}`);
-    body(`Prospect: ${prospect?.name || "—"} (${prospect?.occupation || "—"}${prospect?.location ? `, ${prospect.location}` : ""})`);
+    table(["Field", "Detail"], [120, 373], [
+      ["Agent", `${agentName} (${agentCode})`],
+      ["Session ID", sessionId],
+      ["Date", new Date().toLocaleString()],
+      ["Mode", mode],
+      ["Language", language],
+      ["Difficulty", difficulty],
+      ["Starter", starterId],
+      ["Prospect", `${prospect?.name || "—"} (${prospect?.occupation || "—"}${prospect?.location ? `, ${prospect.location}` : ""})`],
+    ]);
     rule();
 
     heading("Result", 12);
-    body(`Overall Score: ${assessment.overall}/100  —  ${assessment.pass_status === "Pass" ? "PASS" : "RETRY"}`);
-    body(`Appointment: ${assessment.appointment_outcome}  ·  AI Confidence: ${assessment.ai_confidence}%  ·  Compliance: ${assessment.compliance_result}`);
+    table(["Field", "Detail"], [120, 373], [
+      ["Overall Score", `${assessment.overall}/100 — ${assessment.pass_status === "Pass" ? "PASS" : "RETRY"}`],
+      ["Appointment", assessment.appointment_outcome],
+      ["AI Confidence", `${assessment.ai_confidence}%`],
+      ["Compliance", assessment.compliance_result],
+    ]);
     rule();
 
     heading("Category Scores", 12);
@@ -1225,23 +1234,22 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     rule();
 
     heading("Your #1 Focus", 12);
-    body(assessment.highest_impact_improvement);
-    heading("What Happened", 12);
-    body(assessment.one_biggest_mistake);
-    if (assessment.strongest_sentence) { heading("Strongest Sentence", 12); body(`"${assessment.strongest_sentence}"`); }
-    if (assessment.better_close) { heading("A Better Close", 12); body(assessment.better_close); }
-    if (assessment.compliance_result === "Fail") { heading("Compliance Issue", 12); body(assessment.compliance_issue); }
+    const focusRows = [
+      ["#1 Focus", assessment.highest_impact_improvement],
+      ["What Happened", assessment.one_biggest_mistake],
+    ];
+    if (assessment.strongest_sentence) focusRows.push(["Strongest Sentence", `"${assessment.strongest_sentence}"`]);
+    if (assessment.better_close) focusRows.push(["A Better Close", assessment.better_close]);
+    if (assessment.compliance_result === "Fail") focusRows.push(["Compliance Issue", assessment.compliance_issue]);
+    table(["Area", "Detail"], [120, 373], focusRows);
     rule();
 
     heading("Full Conversation Transcript", 12);
-    messages.forEach((m) => {
-      const speaker = m.role === "user" ? `${agentName || "Agent"}:` : `${prospect?.name || "Prospect"}:`;
-      doc.setFont(undefined, "bold").setFontSize(10).setTextColor(22, 40, 60);
-      ensureSpace(14);
-      doc.text(speaker, marginX, y);
-      y += 14;
-      body(m.text);
-    });
+    table(
+      ["Speaker", "Message"],
+      [100, 393],
+      messages.map((m) => [m.role === "user" ? (agentName || "Agent") : (prospect?.name || "Prospect"), m.text])
+    );
 
     // Plain doc.save() relies on the browser's "download" attribute, which iOS Safari
     // doesn't reliably support — it often navigates the whole app away to show the PDF
