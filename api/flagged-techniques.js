@@ -32,6 +32,13 @@ async function airtableFetch(path, token, options = {}) {
 }
 
 export default async function handler(req, res) {
+  // Explicitly forbid caching anywhere in the chain (CDN, proxy, browser) â a stale
+  // cached response is otherwise indistinguishable from a real data bug to whoever's
+  // looking at the app.
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
   const token = process.env.AIRTABLE_TOKEN;
   if (!token) {
     res.status(500).json({ error: "Server is missing AIRTABLE_TOKEN." });
