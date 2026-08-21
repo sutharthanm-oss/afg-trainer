@@ -1484,6 +1484,156 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   }
 
+  // Downloads just ONE specific session from the Dashboard's historical data — the
+  // per-agent button combines every session into one file; this pulls out a single one.
+  function downloadOneDashboardSessionPDF(agentCode, sessionId) {
+    if (!dashboardData) return;
+    const agent = dashboardData.agents.find((a) => a.agentCode === agentCode);
+    const s = agent?.sessions.find((sess) => sess.sessionId === sessionId);
+    if (!s) return;
+    const displayName = adminAgents.find((ag) => ag.code === agentCode)?.name || agentCode;
+
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 48;
+    const maxW = pageW - marginX * 2;
+    let y = 56;
+
+    function ensureSpace(needed) {
+      if (y + needed > doc.internal.pageSize.getHeight() - 48) {
+        doc.addPage();
+        y = 56;
+      }
+    }
+    function heading(text, size = 14) {
+      ensureSpace(size + 14);
+      doc.setFont(undefined, "bold").setFontSize(size).setTextColor(22, 40, 60);
+      doc.text(text, marginX, y);
+      y += size + 8;
+      doc.setFont(undefined, "normal").setTextColor(20, 20, 20);
+    }
+    function body(text, size = 10) {
+      doc.setFont(undefined, "normal").setFontSize(size).setTextColor(40, 40, 40);
+      const lines = doc.splitTextToSize(String(text || "—"), maxW);
+      lines.forEach((line) => {
+        ensureSpace(size + 4);
+        doc.text(line, marginX, y);
+        y += size + 4;
+      });
+      y += 4;
+    }
+    function rule() {
+      ensureSpace(10);
+      doc.setDrawColor(200, 200, 200);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 14;
+    }
+    function table(headers, colWidths, rows) {
+      const tableW = colWidths.reduce((a, b) => a + b, 0);
+      const pad = 5;
+      const lineH = 10.5;
+      const headerH = 22;
+      ensureSpace(headerH);
+      doc.setFillColor(22, 40, 60);
+      doc.rect(marginX, y, tableW, headerH, "F");
+      doc.setFont(undefined, "bold").setFontSize(9).setTextColor(255, 255, 255);
+      let hx = marginX;
+      headers.forEach((h, i) => { doc.text(h, hx + pad, y + 14); hx += colWidths[i]; });
+      y += headerH;
+      doc.setFont(undefined, "normal").setFontSize(8.5);
+      rows.forEach((row, rIdx) => {
+        const wrapped = row.map((cell, i) => doc.splitTextToSize(String(cell || "—"), colWidths[i] - pad * 2));
+        const maxLines = Math.max(...wrapped.map((w) => w.length));
+        const rowH = Math.max(24, maxLines * lineH + pad * 2);
+        ensureSpace(rowH);
+        if (rIdx % 2 === 0) { doc.setFillColor(245, 247, 250); doc.rect(marginX, y, tableW, rowH, "F"); }
+        let cx = marginX;
+        doc.setTextColor(40, 40, 40);
+        wrapped.forEach((lines, i) => {
+          lines.forEach((line, li) => { doc.text(line, cx + pad, y + pad + 8 + li * lineH); });
+          cx += colWidths[i];
+        });
+        doc.setDrawColor(220, 220, 220);
+        doc.line(marginX, y + rowH, marginX + tableW, y + rowH);
+        y += rowH;
+      });
+      y += 10;
+      doc.setFont(undefined, "normal").setFontSize(10).setTextColor(20, 20, 20);
+    }
+
+    doc.setFont(undefined, "bold").setFontSize(18).setTextColor(22, 40, 60);
+    doc.text("CallSpar - Appointment Sparring", marginX, y);
+    y += 26;
+    doc.setFont(undefined, "bold").setFontSize(20).setTextColor(22, 40, 60);
+    doc.text("Session Report", marginX, y);
+    y += 28;
+
+    heading("Session Details", 12);
+    table(["Field", "Detail"], [120, 373], [
+      ["Agent", displayName],
+      ["Session ID", s.sessionId],
+      ["Date", s.time ? new Date(s.time).toLocaleString() : "—"],
+      ["Mode / Difficulty", `${s.mode} / ${s.difficulty}`],
+      ["Prospect", s.prospectName ? `${s.prospectName}${s.prospectLocation ? `, ${s.prospectLocation}` : ""}` : "—"],
+    ]);
+    rule();
+
+    heading("Result", 12);
+    table(["Field", "Detail"], [120, 373], [
+      ["Overall Score", `${s.score ?? "—"}/100 — ${s.pass === "Pass" ? "PASS" : "RETRY"}`],
+      ["Appointment", s.outcome],
+    ]);
+    rule();
+
+    if (s.categoryEvidence) {
+      heading("Category Breakdown", 12);
+      const catRows = s.categoryEvidence.split("\n").map((line) => {
+        const m = line.match(/^(.*?)\s*\((\d+\/\d+)\):\s*(.*)$/);
+        if (!m) return [line, "", ""];
+        const [, cat, score, rest] = m;
+        const [why, improve] = rest.split(/\s*\|\s*Improve:\s*/);
+        return [cat, score, `${why || ""}${improve ? ` | Improve: ${improve}` : ""}`];
+      });
+      table(["Category", "Score", "Why & How to Improve"], [110, 45, 338], catRows);
+      rule();
+    }
+
+    if (s.allMistakes && s.allMistakes.length) {
+      heading("Mistakes", 12);
+      table(["#", "Mistake"], [30, 463], s.allMistakes.map((m, i) => [i + 1, m]));
+      rule();
+    }
+    if (s.thingsDoneWell && s.thingsDoneWell.length) {
+      heading("Done Well", 12);
+      table(["#", "What Was Done Well"], [30, 463], s.thingsDoneWell.map((g, i) => [i + 1, g]));
+      rule();
+    }
+
+    heading("Full Conversation Transcript", 12);
+    if (s.transcript) {
+      const lines = s.transcript.split("\n").map((line) => {
+        const idx = line.indexOf(":");
+        return idx > -1 ? [line.slice(0, idx), line.slice(idx + 1).trim()] : ["", line];
+      });
+      table(["Speaker", "Message"], [100, 393], lines);
+    } else {
+      body("(No transcript saved for this session — it was submitted before transcript logging was added.)");
+    }
+
+    const blob2 = doc.output("blob");
+    const blobUrl2 = URL.createObjectURL(blob2);
+    const opened2 = window.open(blobUrl2, "_blank");
+    if (!opened2) {
+      const link2 = document.createElement("a");
+      link2.href = blobUrl2;
+      link2.download = `CallSpar_${displayName.replace(/\s+/g, "_")}_${s.sessionId}.pdf`;
+      document.body.appendChild(link2);
+      link2.click();
+      document.body.removeChild(link2);
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl2), 60000);
+  }
+
   async function submitToAirtable() {
     if (!assessment || assessment.error) return;
     setSubmitState("submitting");
@@ -1887,21 +2037,27 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                                 const sessionOpen = expandedSessionId === s.sessionId;
                                 return (
                                 <div key={s.sessionId} className="px-4 py-3">
-                                  <button onClick={() => setExpandedSessionId(sessionOpen ? null : s.sessionId)} className="w-full text-left">
-                                    <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                                      <span>{s.time ? new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {s.mode} · {s.difficulty}</span>
-                                      <span className={`font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>{s.score ?? "—"}/100 · {s.pass || "—"}</span>
-                                    </div>
-                                    {s.realName && (
-                                      <div className="text-xs font-medium text-slate-600 mb-1">Tester: {s.realName}</div>
-                                    )}
-                                    {s.prospectName && (
-                                      <div className="text-xs text-slate-400 mb-1">vs. {s.prospectName}{s.prospectLocation ? ` · ${s.prospectLocation}` : ""}</div>
-                                    )}
-                                    {s.improvement && (
-                                      <div className="text-xs text-slate-700"><span className="font-semibold text-teal-700">Focus: </span>{s.improvement}</div>
-                                    )}
-                                  </button>
+                                  <div className="flex items-start gap-2">
+                                    <button onClick={() => setExpandedSessionId(sessionOpen ? null : s.sessionId)} className="flex-1 text-left">
+                                      <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                                        <span>{s.time ? new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {s.mode} · {s.difficulty}</span>
+                                        <span className={`font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>{s.score ?? "—"}/100 · {s.pass || "—"}</span>
+                                      </div>
+                                      {s.realName && (
+                                        <div className="text-xs font-medium text-slate-600 mb-1">Tester: {s.realName}</div>
+                                      )}
+                                      {s.prospectName && (
+                                        <div className="text-xs text-slate-400 mb-1">vs. {s.prospectName}{s.prospectLocation ? ` · ${s.prospectLocation}` : ""}</div>
+                                      )}
+                                      {s.improvement && (
+                                        <div className="text-xs text-slate-700"><span className="font-semibold text-teal-700">Focus: </span>{s.improvement}</div>
+                                      )}
+                                    </button>
+                                    <button onClick={() => downloadOneDashboardSessionPDF(a.agentCode, s.sessionId)}
+                                      className="shrink-0 p-1 text-teal-700 hover:text-teal-800" title="Download this session's report">
+                                      <FileDown size={15} />
+                                    </button>
+                                  </div>
 
                                   {sessionOpen && (
                                     <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
