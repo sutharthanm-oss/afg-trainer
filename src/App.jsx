@@ -1401,7 +1401,6 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
               </div>
             )}
           </div>
-          </div>
 
           {!DEMO_MODE && (
           <>
