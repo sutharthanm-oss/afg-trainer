@@ -70,7 +70,7 @@ export default async function handler(req, res) {
         : `IS_SAME({Session Date-Time}, TODAY(), "day")`;
       filterFormula = encodeURIComponent(`AND({Valid Session} = TRUE(), ${dateFormula})`);
     }
-    const fields = ["Session ID", "Agent Code Submitted", "Session Date-Time", "Overall Score", "Pass Status", "Mode", "Difficulty", "Appointment Outcome", "Prospect", "Full Transcript"]
+    const fields = ["Session ID", "Agent Code Submitted", "Session Date-Time", "Overall Score", "Pass Status", "Mode", "Difficulty", "Appointment Outcome", "Prospect", "Full Transcript", "Tester Real Name"]
       .map((f) => `fields[]=${encodeURIComponent(f)}`).join("&");
 
     const sessionsData = await airtableGetAllPages(
@@ -88,6 +88,7 @@ export default async function handler(req, res) {
       difficulty: r.fields["Difficulty"] || "",
       outcome: r.fields["Appointment Outcome"] || "",
       transcript: r.fields["Full Transcript"] || "",
+      realName: r.fields["Tester Real Name"] || "",
       prospectRecordId: (r.fields["Prospect"] || [])[0] || "",
       prospectName: "",
       prospectLocation: "",
