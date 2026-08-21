@@ -61,7 +61,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { agentCode, sessionId, mode, language, difficulty, starterId, assessment, transcript } = req.body || {};
+  const { agentCode, sessionId, mode, language, difficulty, starterId, assessment, transcript, realName } = req.body || {};
   if (!agentCode || !sessionId || !assessment) {
     res.status(400).json({ error: "Missing agentCode, sessionId, or assessment in request body." });
     return;
@@ -111,6 +111,7 @@ export default async function handler(req, res) {
               "Compliance Issue": assessment.compliance_issue || "",
               "AI Assessment Confidence": assessment.ai_confidence,
               "Full Transcript": transcript || "",
+              "Tester Real Name": realName || "",
               "Valid Session": true,
               "Agent": [agentRecordId],
             },
