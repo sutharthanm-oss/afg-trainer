@@ -116,6 +116,94 @@ function extractJson(text) {
   }
 }
 
+// The assessment schema has ~25 known fields in a fixed order. Unlike a roleplay reply,
+// we can't fall back to "just show the raw text" if parsing fails — a broken assessment
+// genuinely has nothing sensible to display. So instead of hoping the model always
+// escapes quotes perfectly, this extracts each field by anchoring on the NEXT field name
+// in sequence, tolerating any stray quotes in between. This is what actually makes a
+// malformed response recoverable instead of a hard failure.
+const ASSESSMENT_STRING_FIELDS = [
+  "communication_evidence", "communication_improvement",
+  "objection_handling_evidence", "objection_handling_improvement",
+  "appointment_closing_evidence", "appointment_closing_improvement",
+  "listening_evidence", "listening_improvement",
+  "questioning_evidence", "questioning_improvement",
+  "confidence_tone_evidence", "confidence_tone_improvement",
+  "script_intent_evidence", "script_intent_improvement",
+  "pass_status", "appointment_outcome", "compliance_result", "compliance_issue",
+  "one_biggest_mistake", "highest_impact_improvement",
+  "strongest_sentence", "strongest_question", "better_response", "better_close",
+  "full_report", "flagged_technique", "flagged_technique_reason",
+];
+const ASSESSMENT_NUMBER_FIELDS = [
+  "communication", "objection_handling", "appointment_closing", "listening",
+  "questioning", "confidence_tone", "script_intent", "overall", "ai_confidence",
+];
+const ASSESSMENT_ARRAY_FIELDS = ["all_mistakes", "things_done_well"];
+const ASSESSMENT_FIELD_ORDER = [
+  "communication", "communication_evidence", "communication_improvement",
+  "objection_handling", "objection_handling_evidence", "objection_handling_improvement",
+  "appointment_closing", "appointment_closing_evidence", "appointment_closing_improvement",
+  "listening", "listening_evidence", "listening_improvement",
+  "questioning", "questioning_evidence", "questioning_improvement",
+  "confidence_tone", "confidence_tone_evidence", "confidence_tone_improvement",
+  "script_intent", "script_intent_evidence", "script_intent_improvement",
+  "overall", "pass_status", "appointment_outcome", "compliance_result", "compliance_issue",
+  "ai_confidence", "one_biggest_mistake", "highest_impact_improvement",
+  "strongest_sentence", "strongest_question", "better_response", "better_close",
+  "full_report", "flagged_technique", "flagged_technique_reason",
+  "all_mistakes", "things_done_well",
+];
+
+function extractAssessmentJson(text) {
+  try {
+    return extractJson(text);
+  } catch (e) {}
+
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const result = {};
+
+  function nextFieldPattern(index) {
+    // Match up to whichever of: the next known field name, or the final closing brace,
+    // comes first — this is what lets a stray quote inside the VALUE be tolerated.
+    for (let j = index + 1; j < ASSESSMENT_FIELD_ORDER.length; j++) {
+      const nf = ASSESSMENT_FIELD_ORDER[j];
+      return `(?="${nf}"\\s*:|\\}\\s*$)`;
+    }
+    return `(?=\\}\\s*$)`;
+  }
+
+  ASSESSMENT_FIELD_ORDER.forEach((field, idx) => {
+    if (ASSESSMENT_NUMBER_FIELDS.includes(field)) {
+      const m = cleaned.match(new RegExp(`"${field}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
+      result[field] = m ? Number(m[1]) : 0;
+    } else if (ASSESSMENT_STRING_FIELDS.includes(field)) {
+      const lookahead = nextFieldPattern(idx);
+      const m = cleaned.match(new RegExp(`"${field}"\\s*:\\s*"([\\s\\S]*?)"\\s*,?\\s*${lookahead}`));
+      result[field] = m ? m[1].replace(/\\"/g, '"').replace(/\\n|\\t/g, " ").trim() : "";
+    } else if (ASSESSMENT_ARRAY_FIELDS.includes(field)) {
+      const m = cleaned.match(new RegExp(`"${field}"\\s*:\\s*\\[([\\s\\S]*?)\\]`));
+      if (!m) {
+        result[field] = [];
+      } else {
+        result[field] = m[1]
+          .split(/",\s*"|"\s*,\s*"/)
+          .map((s) => s.replace(/^"|"$/g, "").replace(/\\"/g, '"').trim())
+          .filter(Boolean);
+      }
+    }
+  });
+
+  // A recovered result is only useful if the core scores actually came through — if every
+  // category is still zero, the repair didn't really work and we should treat this as a
+  // genuine failure rather than show a fake all-zero assessment.
+  const gotRealScores = ASSESSMENT_NUMBER_FIELDS.slice(0, 7).some((f) => result[f] > 0);
+  if (!gotRealScores) {
+    throw new Error("Could not recover assessment scores from response. Raw (first 300 chars): " + cleaned.slice(0, 300));
+  }
+  return result;
+}
+
 // Roleplay replies specifically get extra, more forgiving fallback layers on top of
 // extractJson, since a broken "reply" line should never actually break the conversation —
 // unlike the assessment, which genuinely needs real structured score data to be meaningful.
@@ -745,6 +833,8 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
     const transcript = messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n");
     const system = `You are a strict certified assessor evaluating an appointment-setting roleplay. Do not inflate scores. Do not be a people-pleaser. A weak performance must get a weak score. Score out of these weights: Communication Effectiveness 25, Objection Handling 25, Appointment Closing 20, Listening 10, Questioning 10, Confidence/Tone 5, Script Intent Alignment 5 (total 100). Passing score is 80. A confirmed appointment requires: 45-minute meeting, specific date, specific time, a general location or platform (an exact venue name is not required — a general reference like "a cafe near your office" or "on Zoom" counts as confirmed), clear commitment, permission to send details. Automatically fail (compliance) for guarantees, false claims, fake urgency, or pressure after final rejection.
 
+GLOBAL FORMATTING RULE — applies to every single field in this response, not just one section: your entire reply is a JSON object. Anywhere, in any field (evidence, mistakes, strengths, the full report, anywhere at all), that you quote or reference the exact words either party said, wrap that excerpt in single quotes ('like this') — never in double quotes ("like this"). A double quote inside a JSON string value that isn't the field's own delimiter breaks the entire response and makes it fail completely. This rule matters more than anything else in this prompt: an unparseable response helps no one, however good the actual assessment inside it would have been.
+
 For EVERY one of the 7 category scores, the evidence field MUST include at least one exact, verbatim quote from what the agent actually said in this specific conversation — word for word, not paraphrased. A description of quality without a quote (e.g. "Clear, confident delivery throughout") is not acceptable, even if true — the agent needs to see the literal sentence that earned or cost them points, not a summary judgment about it. CRITICAL FORMATTING RULE: since this whole response is JSON, wrap each quoted excerpt in single quotes ('like this'), never in double quotes — double quotes inside a JSON string value break the response and make it unusable. Format each evidence field as: a single-quoted excerpt, followed by a brief explanation of why that specific line mattered for this category. If a score isn't full marks, quote the specific line that fell short and explain the gap. If a category scored full marks, quote the specific line that earned it.
 
 List EVERY distinct mistake you can identify (not just the single biggest one) — each as a short, specific, standalone point. Same for strengths — list EVERY distinct thing the agent did well, not just one. Use empty arrays if genuinely none apply, but do not pad the lists with filler either.
@@ -761,7 +851,7 @@ If the agent used an effective technique that is NOT part of the approved object
 
     async function attemptAssessment() {
       const raw = await callClaude([{ role: "user", content: `TRANSCRIPT:\n${transcript}\n\nProduce the assessment JSON now.` }], system, 2200);
-      return extractJson(raw);
+      return extractAssessmentJson(raw);
     }
 
     try {
