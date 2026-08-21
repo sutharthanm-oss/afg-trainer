@@ -1315,8 +1315,10 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   }
 
-  function downloadAllSessionsPDF() {
+  function downloadAllSessionsPDF(agentFilter) {
     if (!dashboardData || dashboardData.totalSessions === 0) return;
+    const agentsToInclude = agentFilter ? dashboardData.agents.filter((a) => a.agentCode === agentFilter) : dashboardData.agents;
+    if (agentsToInclude.length === 0) return;
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     const pageW = doc.internal.pageSize.getWidth();
     const marginX = 48;
@@ -1401,13 +1403,22 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     doc.text("CallSpar - Appointment Sparring", marginX, y);
     y += 26;
     doc.setFont(undefined, "bold").setFontSize(20).setTextColor(22, 40, 60);
-    doc.text("All-Agent Session Report", marginX, y);
+    const displayName = agentFilter ? (adminAgents.find((ag) => ag.code === agentFilter)?.name || agentFilter) : null;
+    doc.text(agentFilter ? `Session Report — ${displayName}` : "All-Agent Session Report", marginX, y);
     y += 22;
     doc.setFont(undefined, "normal").setFontSize(11).setTextColor(90, 90, 90);
-    doc.text(`${dashboardData.date}  ·  ${dashboardData.totalSessions} sessions  ·  ${dashboardData.uniqueAgents} agents  ·  avg score ${dashboardData.averageScore ?? "—"}`, marginX, y);
+    const filteredTotalSessions = agentsToInclude.reduce((sum, a) => sum + a.attempts, 0);
+    const filteredScores = agentsToInclude.flatMap((a) => a.sessions.map((s) => s.score)).filter((s) => typeof s === "number");
+    const filteredAvg = filteredScores.length ? Math.round(filteredScores.reduce((x, y2) => x + y2, 0) / filteredScores.length) : "—";
+    doc.text(
+      agentFilter
+        ? `${dashboardData.date}  ·  ${filteredTotalSessions} sessions  ·  avg score ${filteredAvg}`
+        : `${dashboardData.date}  ·  ${dashboardData.totalSessions} sessions  ·  ${dashboardData.uniqueAgents} agents  ·  avg score ${dashboardData.averageScore ?? "—"}`,
+      marginX, y
+    );
     y += 24;
 
-    dashboardData.agents.forEach((a) => {
+    agentsToInclude.forEach((a) => {
       const displayName = adminAgents.find((ag) => ag.code === a.agentCode)?.name || a.agentCode;
       ensureSpace(60);
       heading(displayName, 15);
@@ -1463,7 +1474,9 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     if (!opened) {
       const link = document.createElement("a");
       link.href = blobUrl;
-      link.download = `CallSpar_All_Sessions_${dashboardData.date}.pdf`;
+      link.download = agentFilter
+        ? `CallSpar_${(displayName || agentFilter).replace(/\s+/g, "_")}_${dashboardData.date}.pdf`
+        : `CallSpar_All_Sessions_${dashboardData.date}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1819,7 +1832,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                 </button>
               </div>
               {dashboardData && dashboardData.totalSessions > 0 && (
-                <button onClick={downloadAllSessionsPDF}
+                <button onClick={() => downloadAllSessionsPDF()}
                   className="w-full mb-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg py-2.5 flex items-center justify-center gap-2 text-sm">
                   <FileDown size={15} /> Download all sessions (PDF)
                 </button>
@@ -1861,6 +1874,10 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                                 <div className="text-sm font-semibold text-slate-900">{a.avgScore ?? "—"}</div>
                                 <div className="text-xs text-slate-400">avg</div>
                               </div>
+                              <div onClick={(e) => { e.stopPropagation(); downloadAllSessionsPDF(a.agentCode); }}
+                                className="p-1.5 -m-1.5 text-teal-700 hover:text-teal-800">
+                                <FileDown size={16} />
+                              </div>
                               <ChevronRight size={16} className={`text-slate-400 transition-transform ${isOpen ? "rotate-90" : ""}`} />
                             </div>
                           </button>
@@ -1891,7 +1908,34 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                                       {s.categoryEvidence && (
                                         <div>
                                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Category breakdown</div>
-                                          <div className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">{s.categoryEvidence}</div>
+                                          <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                            <table className="w-full text-xs border-collapse min-w-[480px]">
+                                              <thead>
+                                                <tr className="bg-slate-900 text-white">
+                                                  <th className="text-left font-semibold px-2.5 py-2">Category</th>
+                                                  <th className="text-left font-semibold px-2.5 py-2">Score</th>
+                                                  <th className="text-left font-semibold px-2.5 py-2">Why</th>
+                                                  <th className="text-left font-semibold px-2.5 py-2">How to Improve</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {s.categoryEvidence.split("\n").map((line, i) => {
+                                                  const m = line.match(/^(.*?)\s*\((\d+\/\d+)\):\s*(.*)$/);
+                                                  if (!m) return null;
+                                                  const [, cat, score, rest] = m;
+                                                  const [why, improve] = rest.split(/\s*\|\s*Improve:\s*/);
+                                                  return (
+                                                    <tr key={i} className={i % 2 === 0 ? "bg-slate-50" : "bg-white"}>
+                                                      <td className="px-2.5 py-2 align-top font-medium text-slate-800 border-t border-slate-100">{cat}</td>
+                                                      <td className="px-2.5 py-2 align-top text-slate-600 border-t border-slate-100">{score}</td>
+                                                      <td className="px-2.5 py-2 align-top text-slate-600 border-t border-slate-100">{why || "—"}</td>
+                                                      <td className="px-2.5 py-2 align-top text-slate-600 border-t border-slate-100">{improve || "—"}</td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                              </tbody>
+                                            </table>
+                                          </div>
                                         </div>
                                       )}
                                       {s.allMistakes && s.allMistakes.length > 0 && (
