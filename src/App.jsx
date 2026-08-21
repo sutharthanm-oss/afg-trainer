@@ -745,7 +745,7 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
     const transcript = messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n");
     const system = `You are a strict certified assessor evaluating an appointment-setting roleplay. Do not inflate scores. Do not be a people-pleaser. A weak performance must get a weak score. Score out of these weights: Communication Effectiveness 25, Objection Handling 25, Appointment Closing 20, Listening 10, Questioning 10, Confidence/Tone 5, Script Intent Alignment 5 (total 100). Passing score is 80. A confirmed appointment requires: 45-minute meeting, specific date, specific time, a general location or platform (an exact venue name is not required — a general reference like "a cafe near your office" or "on Zoom" counts as confirmed), clear commitment, permission to send details. Automatically fail (compliance) for guarantees, false claims, fake urgency, or pressure after final rejection.
 
-For EVERY one of the 7 category scores, you must give a short, specific, evidence-based reason quoting or closely referencing what the agent actually said — never a generic reason like "good communication" or "needs improvement". A score that isn't full marks must explain concretely what was missing, not just repeat the category name. A full-marks score must say specifically what was done right.
+For EVERY one of the 7 category scores, the evidence field MUST include at least one exact, verbatim quote from what the agent actually said in this specific conversation, wrapped in quotation marks — word for word, not paraphrased. A description of quality without a quote (e.g. "Clear, confident delivery throughout") is not acceptable, even if true — the agent needs to see the literal sentence that earned or cost them points, not a summary judgment about it. Format each evidence field as: a quoted excerpt, followed by a brief explanation of why that specific line mattered for this category. If a score isn't full marks, quote the specific line that fell short and explain the gap. If a category scored full marks, quote the specific line that earned it.
 
 List EVERY distinct mistake you can identify (not just the single biggest one) — each as a short, specific, standalone point. Same for strengths — list EVERY distinct thing the agent did well, not just one. Use empty arrays if genuinely none apply, but do not pad the lists with filler either.
 
@@ -760,7 +760,7 @@ Respond with ONLY valid JSON in this exact shape:
 If the agent used an effective technique that is NOT part of the approved objection library or standard script (per AI Constitution Article 24), briefly describe it in flagged_technique and explain why it worked in flagged_technique_reason. Leave both as empty strings if nothing notable falls outside the approved library. This flag is for Admin review only — it does not affect the score.`;
 
     async function attemptAssessment() {
-      const raw = await callClaude([{ role: "user", content: `TRANSCRIPT:\n${transcript}\n\nProduce the assessment JSON now.` }], system, 1500);
+      const raw = await callClaude([{ role: "user", content: `TRANSCRIPT:\n${transcript}\n\nProduce the assessment JSON now.` }], system, 2200);
       return extractJson(raw);
     }
 
