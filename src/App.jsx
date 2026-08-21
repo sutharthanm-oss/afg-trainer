@@ -1142,6 +1142,51 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
       doc.line(marginX, y, pageW - marginX, y);
       y += 14;
     }
+    // Draws a real table with wrapped text per cell and alternating row shading — jsPDF has
+    // no built-in table support, so this is hand-drawn with rects/lines/text rather than
+    // pulling in a whole extra plugin dependency just for this.
+    function table(headers, colWidths, rows) {
+      const tableW = colWidths.reduce((a, b) => a + b, 0);
+      const pad = 5;
+      const lineH = 10.5;
+      const headerH = 22;
+
+      ensureSpace(headerH);
+      doc.setFillColor(22, 40, 60);
+      doc.rect(marginX, y, tableW, headerH, "F");
+      doc.setFont(undefined, "bold").setFontSize(9).setTextColor(255, 255, 255);
+      let hx = marginX;
+      headers.forEach((h, i) => {
+        doc.text(h, hx + pad, y + 14);
+        hx += colWidths[i];
+      });
+      y += headerH;
+
+      doc.setFont(undefined, "normal").setFontSize(8.5);
+      rows.forEach((row, rIdx) => {
+        const wrapped = row.map((cell, i) => doc.splitTextToSize(String(cell || "—"), colWidths[i] - pad * 2));
+        const maxLines = Math.max(...wrapped.map((w) => w.length));
+        const rowH = Math.max(24, maxLines * lineH + pad * 2);
+        ensureSpace(rowH);
+        if (rIdx % 2 === 0) {
+          doc.setFillColor(245, 247, 250);
+          doc.rect(marginX, y, tableW, rowH, "F");
+        }
+        let cx = marginX;
+        doc.setTextColor(40, 40, 40);
+        wrapped.forEach((lines, i) => {
+          lines.forEach((line, li) => {
+            doc.text(line, cx + pad, y + pad + 8 + li * lineH);
+          });
+          cx += colWidths[i];
+        });
+        doc.setDrawColor(220, 220, 220);
+        doc.line(marginX, y + rowH, marginX + tableW, y + rowH);
+        y += rowH;
+      });
+      y += 10;
+      doc.setFont(undefined, "normal").setFontSize(10).setTextColor(20, 20, 20);
+    }
 
     doc.setFont(undefined, "bold").setFontSize(18).setTextColor(22, 40, 60);
     doc.text("CallSpar - Appointment Sparring", marginX, y);
@@ -1164,19 +1209,19 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     rule();
 
     heading("Category Scores", 12);
-    [
-      ["Communication", assessment.communication, 25, assessment.communication_evidence, assessment.communication_improvement],
-      ["Objection Handling", assessment.objection_handling, 25, assessment.objection_handling_evidence, assessment.objection_handling_improvement],
-      ["Appointment Closing", assessment.appointment_closing, 20, assessment.appointment_closing_evidence, assessment.appointment_closing_improvement],
-      ["Listening", assessment.listening, 10, assessment.listening_evidence, assessment.listening_improvement],
-      ["Questioning", assessment.questioning, 10, assessment.questioning_evidence, assessment.questioning_improvement],
-      ["Confidence & Tone", assessment.confidence_tone, 5, assessment.confidence_tone_evidence, assessment.confidence_tone_improvement],
-      ["Script Intent", assessment.script_intent, 5, assessment.script_intent_evidence, assessment.script_intent_improvement],
-    ].forEach(([label, val, max, evidence, improvement]) => {
-      heading(`${label}: ${val}/${max}`, 11);
-      if (evidence) body("Why: " + evidence);
-      if (improvement) body("Improve: " + improvement);
-    });
+    table(
+      ["Category", "Score", "Why This Score", "How to Improve"],
+      [95, 42, 178, 178],
+      [
+        ["Communication", `${assessment.communication}/25`, assessment.communication_evidence, assessment.communication_improvement],
+        ["Objection Handling", `${assessment.objection_handling}/25`, assessment.objection_handling_evidence, assessment.objection_handling_improvement],
+        ["Appointment Closing", `${assessment.appointment_closing}/20`, assessment.appointment_closing_evidence, assessment.appointment_closing_improvement],
+        ["Listening", `${assessment.listening}/10`, assessment.listening_evidence, assessment.listening_improvement],
+        ["Questioning", `${assessment.questioning}/10`, assessment.questioning_evidence, assessment.questioning_improvement],
+        ["Confidence & Tone", `${assessment.confidence_tone}/5`, assessment.confidence_tone_evidence, assessment.confidence_tone_improvement],
+        ["Script Intent", `${assessment.script_intent}/5`, assessment.script_intent_evidence, assessment.script_intent_improvement],
+      ]
+    );
     rule();
 
     heading("Your #1 Focus", 12);
