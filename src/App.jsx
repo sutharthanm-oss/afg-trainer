@@ -688,7 +688,7 @@ RULES:
 - Do not give an appointment easily. Require a specific date, time, a general location or platform (an exact venue name is not required — "a coffee shop near your office" or "a call on Zoom" is acceptable), and your clear agreement before accepting.
 ${ov.noRejection ? "- This is a scripted product demonstration. Raise realistic objections and questions, but do NOT fully reject the appointment under any circumstances — always remain open to eventually agreeing." : "- You may fully reject the appointment if the agent performs poorly or pressures you after you've declined."}
 - Never coach the agent. Never break character. Never mention that you are an AI or that this is a simulation.
-${ov.forceAccept ? "\nIMPORTANT — THIS IS THE FINAL TURN: You must now warmly and unambiguously ACCEPT the appointment exactly as most recently proposed, confirming the day, time, and location or platform back to the agent. Do not ask any further questions, do not raise any new objection, and set endRoleplay to true with endReason describing the confirmed appointment." : ""}
+${ov.forceAccept ? "\nIMPORTANT — THIS IS THE FINAL TURN: Whatever day, time, and location or platform is already on the table from the conversation so far, you must now warmly and unambiguously CONFIRM it exactly as-is — repeat it back briefly so it's clear (e.g. \"Great, Thursday 6:30pm at the cafe works for me!\"). Do NOT propose a new day, time, or location of your own, do NOT hedge, do NOT ask any further questions, do NOT raise any new objection. Just confirm what's already been discussed. Set endRoleplay to true with endReason describing the confirmed appointment." : ""}
 
 OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
 {"reply": "<your in-character spoken response>", "endRoleplay": <true if a fully confirmed appointment was just secured, OR you are giving a final firm rejection, otherwise false>, "endReason": "<short reason if ending, else empty string>"}`;
@@ -792,6 +792,7 @@ Conversation starter already used to open (do not repeat it): "${starterText(sta
 
 RULE: The appointment is always a 45-minute meeting. Never propose, agree to, or mention any other duration (not 15, not 20, not 30 minutes) at any point in the conversation — this applies from your very first mention of time commitment through to the final close.
 ${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, the 45-minute duration, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask another open question." : ""}
+${ov.finalConfirm ? "\nIMPORTANT — THIS IS THE VERY LAST LINE OF THE CALL: The prospect just confirmed the appointment. Give one brief, warm closing line acknowledging it — you may restate the day/time/location and thank them, similar to \"Perfect, see you then!\". Do not ask any question, do not add any new information, do not negotiate further. This is the goodbye line." : ""}
 
 Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says next>"}`;
   }
@@ -893,7 +894,6 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
       const MAX_EXCHANGES = 4;
       let closingLine = "";
-      let naturalEnd = false;
       const overrides = { prospect: p, objections: objs, starterId: randomStarter.id, language: "English", noRejection: true };
       for (let i = 0; i < MAX_EXCHANGES; i++) {
         setAutoPlayTypingAs("prospect");
@@ -901,7 +901,13 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         setAutoPlayTypingAs("");
         pushMessage({ role: "assistant", text: prospectTurn.reply });
         await sleep(900);
-        if (prospectTurn.endRoleplay) { naturalEnd = true; break; }
+        // Deliberately NOT trusting prospectTurn.endRoleplay to cut the loop short here —
+        // the model sometimes flags general willingness ("I'm open to it, when and where?")
+        // as if a specific date/time/location had already been agreed, which isn't true.
+        // Ending early on that misread skipped the master agent's turn entirely, so the
+        // demo stopped right on the prospect's open question with no proposal ever locked
+        // in. Always running the full fixed number of rounds guarantees the agent gets to
+        // actually propose and close, not just get asked to.
 
         const isLastTurn = i === MAX_EXCHANGES - 1;
         setAutoPlayTypingAs("agent");
@@ -912,19 +918,23 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         await sleep(900);
       }
 
-      // If the loop ended because we hit the round cap — not because the prospect had
-      // already confirmed and ended things naturally — the conversation would otherwise
-      // stop right on the agent's own closing proposal, with no reply. This final turn is
-      // explicitly forced to accept (forceAccept), not left to the prospect's own judgment
-      // like every other turn — a scripted demo can't end on an ambiguous "let me think
-      // about it", it needs to visibly land on a confirmed yes every time.
-      if (!naturalEnd) {
-        setAutoPlayTypingAs("prospect");
-        const finalTurn = await generateProspectLine({ ...overrides, forceAccept: true });
-        setAutoPlayTypingAs("");
-        pushMessage({ role: "assistant", text: finalTurn.reply });
-        await sleep(900);
-      }
+      // Always finish with one guaranteed, explicitly forced acceptance turn — a scripted
+      // demo can't end ambiguously, it needs to visibly land on a specific, confirmed yes.
+      setAutoPlayTypingAs("prospect");
+      const finalTurn = await generateProspectLine({ ...overrides, forceAccept: true });
+      setAutoPlayTypingAs("");
+      pushMessage({ role: "assistant", text: finalTurn.reply });
+      await sleep(900);
+
+      // One last short agent line acknowledging the confirmation — without this, the call
+      // ends on the prospect's voice, which reads as unfinished. A real close ends with
+      // both sides having clearly landed on the same page.
+      setAutoPlayTypingAs("agent");
+      const goodbyeLine = await generateMasterAgentLine(false, { ...overrides, finalConfirm: true });
+      setAutoPlayTypingAs("");
+      closingLine = goodbyeLine;
+      pushMessage({ role: "user", text: goodbyeLine });
+      await sleep(900);
 
       // Deliberately stay on the roleplay screen instead of auto-jumping to the score —
       // the whole point of watching Master Inviter is to actually read the conversation.
