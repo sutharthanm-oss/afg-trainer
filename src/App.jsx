@@ -1307,33 +1307,100 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
       doc.line(marginX, y, pageW - marginX, y);
       y += 14;
     }
+    // Same hand-drawn table approach as the individual session report — jsPDF has no
+    // built-in table support, and this avoids pulling in a whole extra plugin dependency.
+    function table(headers, colWidths, rows) {
+      const tableW = colWidths.reduce((a, b) => a + b, 0);
+      const pad = 5;
+      const lineH = 10.5;
+      const headerH = 22;
+
+      ensureSpace(headerH);
+      doc.setFillColor(22, 40, 60);
+      doc.rect(marginX, y, tableW, headerH, "F");
+      doc.setFont(undefined, "bold").setFontSize(9).setTextColor(255, 255, 255);
+      let hx = marginX;
+      headers.forEach((h, i) => {
+        doc.text(h, hx + pad, y + 14);
+        hx += colWidths[i];
+      });
+      y += headerH;
+
+      doc.setFont(undefined, "normal").setFontSize(8.5);
+      rows.forEach((row, rIdx) => {
+        const wrapped = row.map((cell, i) => doc.splitTextToSize(String(cell || "—"), colWidths[i] - pad * 2));
+        const maxLines = Math.max(...wrapped.map((w) => w.length));
+        const rowH = Math.max(24, maxLines * lineH + pad * 2);
+        ensureSpace(rowH);
+        if (rIdx % 2 === 0) {
+          doc.setFillColor(245, 247, 250);
+          doc.rect(marginX, y, tableW, rowH, "F");
+        }
+        let cx = marginX;
+        doc.setTextColor(40, 40, 40);
+        wrapped.forEach((lines, i) => {
+          lines.forEach((line, li) => {
+            doc.text(line, cx + pad, y + pad + 8 + li * lineH);
+          });
+          cx += colWidths[i];
+        });
+        doc.setDrawColor(220, 220, 220);
+        doc.line(marginX, y + rowH, marginX + tableW, y + rowH);
+        y += rowH;
+      });
+      y += 10;
+      doc.setFont(undefined, "normal").setFontSize(10).setTextColor(20, 20, 20);
+    }
 
     doc.setFont(undefined, "bold").setFontSize(18).setTextColor(22, 40, 60);
     doc.text("CallSpar - Appointment Sparring", marginX, y);
+    y += 26;
+    doc.setFont(undefined, "bold").setFontSize(20).setTextColor(22, 40, 60);
+    doc.text("All-Agent Session Report", marginX, y);
     y += 22;
     doc.setFont(undefined, "normal").setFontSize(11).setTextColor(90, 90, 90);
-    doc.text(`All-Agent Session Report — ${dashboardData.date}`, marginX, y);
-    y += 18;
-    doc.setFontSize(10);
-    doc.text(`${dashboardData.totalSessions} sessions · ${dashboardData.uniqueAgents} agents · avg score ${dashboardData.averageScore ?? "—"}`, marginX, y);
+    doc.text(`${dashboardData.date}  ·  ${dashboardData.totalSessions} sessions  ·  ${dashboardData.uniqueAgents} agents  ·  avg score ${dashboardData.averageScore ?? "—"}`, marginX, y);
     y += 24;
 
     dashboardData.agents.forEach((a) => {
       const displayName = adminAgents.find((ag) => ag.code === a.agentCode)?.name || a.agentCode;
       ensureSpace(60);
       heading(displayName, 15);
-      body(`${a.attempts} attempt${a.attempts !== 1 ? "s" : ""} · ${a.passCount} pass · ${a.retryCount} retry · avg ${a.avgScore ?? "—"} · best ${a.bestScore ?? "—"}`);
-      rule();
+      table(["Attempts", "Pass", "Retry", "Avg Score", "Best Score"], [79, 79, 79, 128, 128], [
+        [a.attempts, a.passCount, a.retryCount, a.avgScore ?? "—", a.bestScore ?? "—"],
+      ]);
 
       a.sessions.forEach((s) => {
         heading(`${s.sessionId} — ${s.score ?? "—"}/100 (${s.pass || "—"})`, 12);
-        body(`${s.time ? new Date(s.time).toLocaleString() : "—"} · ${s.mode} · ${s.difficulty} · Appointment: ${s.outcome}${s.prospectName ? ` · vs. ${s.prospectName}${s.prospectLocation ? `, ${s.prospectLocation}` : ""}` : ""}`);
-        if (s.categoryEvidence) { heading("Category breakdown", 11); body(s.categoryEvidence); }
-        if (s.allMistakes && s.allMistakes.length) { heading("Mistakes", 11); s.allMistakes.forEach((m) => body("• " + m)); }
-        if (s.thingsDoneWell && s.thingsDoneWell.length) { heading("Done well", 11); s.thingsDoneWell.forEach((g) => body("• " + g)); }
+        table(["Field", "Detail"], [120, 373], [
+          ["Date", s.time ? new Date(s.time).toLocaleString() : "—"],
+          ["Mode / Difficulty", `${s.mode} / ${s.difficulty}`],
+          ["Appointment", s.outcome],
+          ["Prospect", s.prospectName ? `${s.prospectName}${s.prospectLocation ? `, ${s.prospectLocation}` : ""}` : "—"],
+        ]);
+        if (s.categoryEvidence) {
+          const catRows = s.categoryEvidence.split("\n").map((line) => {
+            const m = line.match(/^(.*?)\s*\((\d+\/\d+)\):\s*(.*)$/);
+            return m ? [m[1], m[2], m[3]] : [line, "", ""];
+          });
+          heading("Category Breakdown", 11);
+          table(["Category", "Score", "Why & How to Improve"], [110, 45, 338], catRows);
+        }
+        if (s.allMistakes && s.allMistakes.length) {
+          heading("Mistakes", 11);
+          table(["#", "Mistake"], [30, 463], s.allMistakes.map((m, i) => [i + 1, m]));
+        }
+        if (s.thingsDoneWell && s.thingsDoneWell.length) {
+          heading("Done Well", 11);
+          table(["#", "What Was Done Well"], [30, 463], s.thingsDoneWell.map((g, i) => [i + 1, g]));
+        }
         if (s.transcript) {
           heading("Conversation Transcript", 11);
-          s.transcript.split("\n").forEach((line) => body(line));
+          const lines = s.transcript.split("\n").map((line) => {
+            const idx = line.indexOf(":");
+            return idx > -1 ? [line.slice(0, idx), line.slice(idx + 1).trim()] : ["", line];
+          });
+          table(["Speaker", "Message"], [100, 393], lines);
         } else {
           body("(No transcript saved for this session — it was submitted before transcript logging was added.)");
         }
