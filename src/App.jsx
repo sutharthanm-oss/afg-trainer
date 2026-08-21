@@ -49,6 +49,23 @@ const CONSTITUTION_SUMMARY = `Rules: appointments must be earned, never gifted. 
 
 // Purely cosmetic — rotates during assessment generation so the wait feels active rather
 // than a single frozen spinner. Doesn't change actual processing time.
+// Strips any leading bullet-like marker ("•", "-", "*", "1.", "2)") from a mistake or
+// strength item, regardless of whether the AI added its own, storage added one, or both
+// got stacked together. This matters for two real reasons: it avoids a doubled-up look
+// in the app's own bulleted list UI, and — more importantly — it keeps a literal "•"
+// character from ever reaching jsPDF's text rendering, since jsPDF's built-in fonts don't
+// properly support that Unicode character and render it as garbled "â€¢" when the
+// resulting PDF's text is later copied out.
+function stripBulletPrefix(text) {
+  let s = String(text || "").trim();
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/^\s*(?:[•\-*]|\d+[.)])\s*/, "").trim();
+  } while (s !== prev);
+  return s;
+}
+
 const ASSESSING_MESSAGES = [
   "Reviewing communication and tone…",
   "Checking objection handling…",
@@ -1451,11 +1468,11 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         }
         if (s.allMistakes && s.allMistakes.length) {
           heading("Mistakes", 11);
-          table(["#", "Mistake"], [30, 463], s.allMistakes.map((m, i) => [i + 1, m]));
+          table(["#", "Mistake"], [30, 463], s.allMistakes.map((m, i) => [i + 1, stripBulletPrefix(m)]));
         }
         if (s.thingsDoneWell && s.thingsDoneWell.length) {
           heading("Done Well", 11);
-          table(["#", "What Was Done Well"], [30, 463], s.thingsDoneWell.map((g, i) => [i + 1, g]));
+          table(["#", "What Was Done Well"], [30, 463], s.thingsDoneWell.map((g, i) => [i + 1, stripBulletPrefix(g)]));
         }
         if (s.transcript) {
           heading("Conversation Transcript", 11);
@@ -1605,12 +1622,12 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
     if (s.allMistakes && s.allMistakes.length) {
       heading("Mistakes", 12);
-      table(["#", "Mistake"], [30, 463], s.allMistakes.map((m, i) => [i + 1, m]));
+      table(["#", "Mistake"], [30, 463], s.allMistakes.map((m, i) => [i + 1, stripBulletPrefix(m)]));
       rule();
     }
     if (s.thingsDoneWell && s.thingsDoneWell.length) {
       heading("Done Well", 12);
-      table(["#", "What Was Done Well"], [30, 463], s.thingsDoneWell.map((g, i) => [i + 1, g]));
+      table(["#", "What Was Done Well"], [30, 463], s.thingsDoneWell.map((g, i) => [i + 1, stripBulletPrefix(g)]));
       rule();
     }
 
@@ -2104,7 +2121,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                                           <div className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-1.5">All mistakes</div>
                                           <ul className="space-y-1">
                                             {s.allMistakes.map((m, i) => (
-                                              <li key={i} className="text-xs text-slate-700 flex gap-1.5"><span className="text-red-400">•</span>{m}</li>
+                                              <li key={i} className="text-xs text-slate-700 flex gap-1.5"><span className="text-red-400">•</span>{stripBulletPrefix(m)}</li>
                                             ))}
                                           </ul>
                                         </div>
@@ -2114,7 +2131,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                                           <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 mb-1.5">Things done well</div>
                                           <ul className="space-y-1">
                                             {s.thingsDoneWell.map((g, i) => (
-                                              <li key={i} className="text-xs text-slate-700 flex gap-1.5"><span className="text-teal-500">•</span>{g}</li>
+                                              <li key={i} className="text-xs text-slate-700 flex gap-1.5"><span className="text-teal-500">•</span>{stripBulletPrefix(g)}</li>
                                             ))}
                                           </ul>
                                         </div>
@@ -2456,7 +2473,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                 <div className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-2">Every mistake identified</div>
                 <ul className="space-y-1.5">
                   {assessment.all_mistakes.map((m, i) => (
-                    <li key={i} className="text-sm text-slate-700 flex gap-2"><span className="text-red-400">•</span>{m}</li>
+                    <li key={i} className="text-sm text-slate-700 flex gap-2"><span className="text-red-400">•</span>{stripBulletPrefix(m)}</li>
                   ))}
                 </ul>
               </div>
@@ -2467,7 +2484,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                 <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 mb-2">Everything done well</div>
                 <ul className="space-y-1.5">
                   {assessment.things_done_well.map((g, i) => (
-                    <li key={i} className="text-sm text-slate-700 flex gap-2"><span className="text-teal-500">•</span>{g}</li>
+                    <li key={i} className="text-sm text-slate-700 flex gap-2"><span className="text-teal-500">•</span>{stripBulletPrefix(g)}</li>
                   ))}
                 </ul>
               </div>
