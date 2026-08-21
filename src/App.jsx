@@ -241,11 +241,16 @@ function extractRoleplayReply(text) {
   // requiring the entire blob to be strictly valid JSON. Anchored on the *next known field
   // name* (not just "any unescaped quote") so a stray quote inside the reply text itself
   // (e.g. the prospect saying the word "hard sell" in quotes) doesn't truncate the sentence.
+  // Also tolerates a stray "}" between the reply's closing quote and the next field — an
+  // observed real malformation where the model inserts a premature closing brace right
+  // after the reply value before continuing with more fields, which previously skipped
+  // past this pattern entirely and fell through to a much greedier one that leaked the
+  // raw JSON structure of the remaining fields into the displayed message.
   function looseReplyField() {
     // Try a few anchor patterns, since field order can occasionally vary.
     const patterns = [
-      /"reply"\s*:\s*"([\s\S]*?)"\s*,\s*"endRoleplay"/,
-      /"reply"\s*:\s*"([\s\S]*?)"\s*,\s*"endReason"/,
+      /"reply"\s*:\s*"([\s\S]*?)"[\s}]*,\s*"endRoleplay"/,
+      /"reply"\s*:\s*"([\s\S]*?)"[\s}]*,\s*"endReason"/,
       /"reply"\s*:\s*"([\s\S]*?)"\s*\}\s*$/,
     ];
     for (const re of patterns) {
