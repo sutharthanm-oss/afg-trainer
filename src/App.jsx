@@ -745,7 +745,7 @@ OUTPUT FORMAT: Respond with ONLY valid JSON, no other text:
     const transcript = messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n");
     const system = `You are a strict certified assessor evaluating an appointment-setting roleplay. Do not inflate scores. Do not be a people-pleaser. A weak performance must get a weak score. Score out of these weights: Communication Effectiveness 25, Objection Handling 25, Appointment Closing 20, Listening 10, Questioning 10, Confidence/Tone 5, Script Intent Alignment 5 (total 100). Passing score is 80. A confirmed appointment requires: 45-minute meeting, specific date, specific time, a general location or platform (an exact venue name is not required — a general reference like "a cafe near your office" or "on Zoom" counts as confirmed), clear commitment, permission to send details. Automatically fail (compliance) for guarantees, false claims, fake urgency, or pressure after final rejection.
 
-For EVERY one of the 7 category scores, the evidence field MUST include at least one exact, verbatim quote from what the agent actually said in this specific conversation, wrapped in quotation marks — word for word, not paraphrased. A description of quality without a quote (e.g. "Clear, confident delivery throughout") is not acceptable, even if true — the agent needs to see the literal sentence that earned or cost them points, not a summary judgment about it. Format each evidence field as: a quoted excerpt, followed by a brief explanation of why that specific line mattered for this category. If a score isn't full marks, quote the specific line that fell short and explain the gap. If a category scored full marks, quote the specific line that earned it.
+For EVERY one of the 7 category scores, the evidence field MUST include at least one exact, verbatim quote from what the agent actually said in this specific conversation — word for word, not paraphrased. A description of quality without a quote (e.g. "Clear, confident delivery throughout") is not acceptable, even if true — the agent needs to see the literal sentence that earned or cost them points, not a summary judgment about it. CRITICAL FORMATTING RULE: since this whole response is JSON, wrap each quoted excerpt in single quotes ('like this'), never in double quotes — double quotes inside a JSON string value break the response and make it unusable. Format each evidence field as: a single-quoted excerpt, followed by a brief explanation of why that specific line mattered for this category. If a score isn't full marks, quote the specific line that fell short and explain the gap. If a category scored full marks, quote the specific line that earned it.
 
 List EVERY distinct mistake you can identify (not just the single biggest one) — each as a short, specific, standalone point. Same for strengths — list EVERY distinct thing the agent did well, not just one. Use empty arrays if genuinely none apply, but do not pad the lists with filler either.
 
@@ -766,11 +766,18 @@ If the agent used an effective technique that is NOT part of the approved object
 
     try {
       let parsed;
-      try {
-        parsed = await attemptAssessment();
-      } catch (firstErr) {
-        parsed = await attemptAssessment();
+      let lastErr;
+      const ATTEMPTS = 3;
+      for (let i = 0; i < ATTEMPTS; i++) {
+        try {
+          parsed = await attemptAssessment();
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
       }
+      if (lastErr) throw lastErr;
       setAssessment(parsed);
       setScreen("assessment");
     } catch (e) {
@@ -1403,30 +1410,6 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                     {!DEMO_MODE && <p className="text-center text-xs text-slate-400 mt-1.5">Or customize your session below</p>}
                   </div>
                 )}
-
-                {verifyState === "verified" && mySessionsState === "ready" && mySessions.length > 0 && (
-                  <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-3.5">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Your Recent Sessions</div>
-                    <div className="space-y-1.5">
-                      {mySessions.slice(0, 5).map((s, i) => (
-                        <div key={s.sessionId || i} className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500 text-xs">{s.date ? new Date(s.date).toLocaleDateString() : "—"}</span>
-                          <span className="text-slate-600 text-xs">{s.difficulty}</span>
-                          <span className={`text-xs font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>
-                            {s.score ?? "—"}/100 · {s.pass || "—"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    {mySessions.length >= 2 && (
-                      <p className="text-xs text-slate-400 mt-2">
-                        {mySessions[0].score > mySessions[mySessions.length - 1].score
-                          ? "You're trending upward — keep going!"
-                          : "Keep practicing — scores build with repetition."}
-                      </p>
-                    )}
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -1912,7 +1895,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         <div className="min-h-screen bg-white text-slate-900 flex flex-col items-center justify-center px-8 text-center">
           <XCircle className="text-red-500 mb-4" size={40} />
           <p className="text-slate-600">The assessment couldn't be generated. Please try the roleplay again.</p>
-          <button onClick={resetApp} className="mt-6 text-teal-700 text-sm font-medium">Start a new session</button>
+          <button onClick={resetApp} className="mt-6 bg-teal-600 hover:bg-teal-700 text-white font-bold text-lg rounded-lg py-4 px-8">Start a new session</button>
         </div>
       );
     }
@@ -2021,13 +2004,13 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         )}
 
         <div className="px-5 mt-8 space-y-3">
-          <p className="text-center text-sm text-slate-600 max-w-xs mx-auto mb-1">
-            {passed
-              ? "Solid work — you earned that appointment fairly."
-              : mode === "Practice"
-              ? "This was practice — nobody's judging you. Fix the focus area above and go again."
-              : "Not this time, and that's normal early on. Fix the focus area above, then retry."}
-          </p>
+          {!passed && (
+            <p className="text-center text-sm text-slate-600 max-w-xs mx-auto mb-1">
+              {mode === "Practice"
+                ? "This was practice — nobody's judging you. Fix the focus area above and go again."
+                : "Not this time, and that's normal early on. Fix the focus area above, then retry."}
+            </p>
+          )}
           <button onClick={downloadSessionPDF}
             className="w-full bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg py-3 flex items-center justify-center gap-2">
             <FileDown size={16} /> View & save report (PDF, opens in new tab)
@@ -2047,7 +2030,10 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
           {submitState === "error" && (
             <div className="text-center text-red-600 text-xs">Submission failed: {submitError || "please try again."}</div>
           )}
-          <button onClick={resetApp} className="w-full text-slate-500 text-sm py-2 hover:text-slate-700">Start a new session</button>
+          <button onClick={resetApp}
+            className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-lg rounded-lg py-4">
+            Start a new session
+          </button>
         </div>
       </div>
     );
