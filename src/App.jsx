@@ -47,6 +47,17 @@ const DEMO_MODE = true;
 
 const CONSTITUTION_SUMMARY = `Rules: appointments must be earned, never gifted. Weak communication must be challenged. No coaching during roleplay. Resistance changes with agent performance. The prospect remembers contradictions and may fully reject the appointment. Stay within the approved objection library. Product knowledge, recruitment, needs analysis, policy comparison are out of scope. This is a simulation.`;
 
+// Purely cosmetic — rotates during assessment generation so the wait feels active rather
+// than a single frozen spinner. Doesn't change actual processing time.
+const ASSESSING_MESSAGES = [
+  "Reviewing communication and tone…",
+  "Checking objection handling…",
+  "Analyzing the closing attempt…",
+  "Finding the exact lines that mattered…",
+  "Writing your coaching notes…",
+  "Almost done…",
+];
+
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function byDifficulty(arr, difficulty) {
   const filtered = arr.filter((x) => x.difficulty === difficulty);
@@ -208,11 +219,23 @@ function extractAssessmentJson(text) {
 // extractJson, since a broken "reply" line should never actually break the conversation —
 // unlike the assessment, which genuinely needs real structured score data to be meaningful.
 function extractRoleplayReply(text) {
+  // If the model glued multiple JSON objects together (an observed real quirk — usually an
+  // incomplete first attempt immediately followed by a complete duplicate), cut the text
+  // down to just the FIRST object before attempting anything else. Without this, a lazy
+  // regex searching for the next valid field boundary can backtrack straight through the
+  // "} {" seam between the two objects and swallow it into the captured reply text —
+  // exactly what caused raw JSON syntax to leak into a displayed message.
+  let workingText = text;
+  const concatMatch = text.match(/\}\s*\{/);
+  if (concatMatch) {
+    workingText = text.slice(0, concatMatch.index + 1); // keep up to and including the first "}"
+  }
+
   try {
-    return extractJson(text);
+    return extractJson(workingText);
   } catch (e) {}
 
-  const cleaned = text.replace(/```json|```/g, "").trim();
+  const cleaned = workingText.replace(/```json|```/g, "").trim();
 
   // Layer 3: loosely pull out just the fields we actually need via regex, rather than
   // requiring the entire blob to be strictly valid JSON. Anchored on the *next known field
@@ -359,6 +382,7 @@ export default function App() {
   const [showScript, setShowScript] = useState(true);
   const [assessment, setAssessment] = useState(null);
   const [assessing, setAssessing] = useState(false);
+  const [assessingMsgIndex, setAssessingMsgIndex] = useState(0);
   const [submitState, setSubmitState] = useState("idle"); // idle | submitting | done | error
   const [submitError, setSubmitError] = useState("");
 
@@ -371,6 +395,17 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!assessing) {
+      setAssessingMsgIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setAssessingMsgIndex((i) => Math.min(i + 1, ASSESSING_MESSAGES.length - 1));
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [assessing]);
 
   async function loadAgents() {
     setAgentListState("loading");
@@ -867,7 +902,7 @@ If the agent used an effective technique that is NOT part of the approved object
     try {
       let parsed;
       let lastErr;
-      const ATTEMPTS = 3;
+      const ATTEMPTS = 2;
       for (let i = 0; i < ATTEMPTS; i++) {
         try {
           parsed = await attemptAssessment();
@@ -2049,7 +2084,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
         {roleplayEnded ? (
           <div className="px-5 py-6 border-t border-slate-100 text-center bg-white">
             {assessing ? (
-              <div className="flex items-center justify-center gap-2 text-slate-500 text-sm"><Loader2 size={16} className="animate-spin" /> Generating your certified assessment…</div>
+              <div className="flex items-center justify-center gap-2 text-slate-500 text-sm"><Loader2 size={16} className="animate-spin" /> {ASSESSING_MESSAGES[assessingMsgIndex]}</div>
             ) : mode === "Demo" && assessment ? (
               <div>
                 <div className="text-slate-500 text-sm mb-3">Demo complete — read back through the conversation above, then continue when you're ready.</div>
