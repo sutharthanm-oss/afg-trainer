@@ -304,6 +304,7 @@ export default function App() {
   const [rankedUnlockPassword, setRankedUnlockPassword] = useState("");
   const [rankedUnlockState, setRankedUnlockState] = useState("idle"); // idle | checking | error
   const [agentName, setAgentName] = useState("");
+  const [realName, setRealName] = useState("");
   const [agentCode, setAgentCode] = useState("");
   const [agentList, setAgentList] = useState([]);
   const [agentListState, setAgentListState] = useState("loading"); // loading | ready | error
@@ -371,22 +372,23 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    async function loadAgents() {
-      setAgentListState("loading");
-      try {
-        const resp = await fetch("/api/agents");
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || "Failed to load agents");
-        setAgentList(data.agents || []);
-        setAgentListState("ready");
-      } catch (e) {
-        // Fall back to the embedded list so the app is still usable if the API route
-        // isn't configured yet (e.g. missing AIRTABLE_TOKEN during initial deploy).
-        setAgentList(FALLBACK_AGENTS);
-        setAgentListState("ready");
-      }
+  async function loadAgents() {
+    setAgentListState("loading");
+    try {
+      const resp = await fetch("/api/agents");
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Failed to load agents");
+      setAgentList(data.agents || []);
+      setAgentListState("ready");
+    } catch (e) {
+      // Fall back to the embedded list so the app is still usable if the API route
+      // isn't configured yet (e.g. missing AIRTABLE_TOKEN during initial deploy).
+      setAgentList(FALLBACK_AGENTS);
+      setAgentListState("ready");
     }
+  }
+
+  useEffect(() => {
     loadAgents();
   }, []);
 
@@ -578,11 +580,19 @@ export default function App() {
     const found = agentList.find((a) => a.code === code);
     setAgentCode(found ? found.code : "");
     setAgentName(found ? found.name : "");
+    setRealName("");
     setAccessPassword("");
     setShowPassword(false);
     setVerifyState("idle");
     setMySessions([]);
     setMySessionsState("idle");
+  }
+
+  // "James Bond" is the shared account anyone uses for test runs — this swaps in the
+  // actual tester's typed-in real name wherever the agent's name would otherwise show,
+  // so transcripts, PDFs, and reports reflect who really ran the session.
+  function displayAgentName() {
+    return agentName === "James Bond" && realName.trim() ? realName.trim() : agentName;
   }
 
   async function loadMySessions(code) {
@@ -1197,7 +1207,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
     heading("Session Details", 12);
     table(["Field", "Detail"], [120, 373], [
-      ["Agent", `${agentName} (${agentCode})`],
+      ["Agent", `${displayAgentName()} (${agentCode})`],
       ["Session ID", sessionId],
       ["Date", new Date().toLocaleString()],
       ["Mode", mode],
@@ -1248,7 +1258,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
     table(
       ["Speaker", "Message"],
       [100, 393],
-      messages.map((m) => [m.role === "user" ? (agentName || "Agent") : (prospect?.name || "Prospect"), m.text])
+      messages.map((m) => [m.role === "user" ? (displayAgentName() || "Agent") : (prospect?.name || "Prospect"), m.text])
     );
 
     // Plain doc.save() relies on the browser's "download" attribute, which iOS Safari
@@ -1372,12 +1382,14 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
 
       a.sessions.forEach((s) => {
         heading(`${s.sessionId} — ${s.score ?? "—"}/100 (${s.pass || "—"})`, 12);
-        table(["Field", "Detail"], [120, 373], [
+        const detailRows = [
           ["Date", s.time ? new Date(s.time).toLocaleString() : "—"],
           ["Mode / Difficulty", `${s.mode} / ${s.difficulty}`],
           ["Appointment", s.outcome],
           ["Prospect", s.prospectName ? `${s.prospectName}${s.prospectLocation ? `, ${s.prospectLocation}` : ""}` : "—"],
-        ]);
+        ];
+        if (s.realName) detailRows.splice(1, 0, ["Tester", s.realName]);
+        table(["Field", "Detail"], [120, 373], detailRows);
         if (s.categoryEvidence) {
           const catRows = s.categoryEvidence.split("\n").map((line) => {
             const m = line.match(/^(.*?)\s*\((\d+\/\d+)\):\s*(.*)$/);
@@ -1439,7 +1451,8 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
           difficulty,
           starterId,
           assessment,
-          transcript: messages.map((m) => `${m.role === "user" ? "AGENT" : "PROSPECT"}: ${m.text}`).join("\n"),
+          realName: agentName === "James Bond" ? realName.trim() : "",
+          transcript: messages.map((m) => `${m.role === "user" ? displayAgentName() : "PROSPECT"}: ${m.text}`).join("\n"),
         }),
       });
       const data = await resp.json();
@@ -1552,7 +1565,10 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
             )}
           </div>
           <div className="border-t border-slate-100 pt-6">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 block">Agent</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 block">Agent</label>
+              <button onClick={loadAgents} className="text-xs text-teal-700 font-medium">Refresh</button>
+            </div>
             {agentListState === "loading" && (
               <div className="flex items-center gap-2 text-slate-500 text-sm bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
                 <Loader2 size={14} className="animate-spin" /> Loading approved agent list…
@@ -1575,6 +1591,15 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
             {selectedAgentCode && (
               <div className="mt-2 text-xs text-teal-700 font-medium flex items-center gap-1.5">
                 <CheckCircle2 size={12} /> Verified against approved agent list
+              </div>
+            )}
+            {selectedAgentCode && agentName === "James Bond" && (
+              <div className="mt-4">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 block">What is your real name?</label>
+                <input type="text" value={realName} onChange={(e) => setRealName(e.target.value)}
+                  placeholder="Enter your real name"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+                <p className="text-xs text-slate-400 mt-1.5">James Bond is the shared test account — your real name will be used in the conversation and reports instead.</p>
               </div>
             )}
             {selectedAgentCode && (
@@ -1715,7 +1740,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
             <div className="h-8 mb-3" />
             <h1 className="text-xl font-semibold text-slate-900">Admin</h1>
           </div>
-          <button onClick={() => { setScreen("setup"); setAdminAuthed(false); setAdminSecretInput(""); }} className="text-sm text-slate-500">Close</button>
+          <button onClick={() => { setScreen("setup"); setAdminAuthed(false); setAdminSecretInput(""); loadAgents(); }} className="text-sm text-slate-500">Close</button>
         </div>
 
         {!adminAuthed ? (
@@ -1815,6 +1840,9 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
                                       <span>{s.time ? new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {s.mode} · {s.difficulty}</span>
                                       <span className={`font-semibold ${s.pass === "Pass" ? "text-teal-700" : "text-red-500"}`}>{s.score ?? "—"}/100 · {s.pass || "—"}</span>
                                     </div>
+                                    {s.realName && (
+                                      <div className="text-xs font-medium text-slate-600 mb-1">Tester: {s.realName}</div>
+                                    )}
                                     {s.prospectName && (
                                       <div className="text-xs text-slate-400 mb-1">vs. {s.prospectName}{s.prospectLocation ? ` · ${s.prospectLocation}` : ""}</div>
                                     )}
