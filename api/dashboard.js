@@ -9,6 +9,19 @@ const TABLE_TRAINING_SESSIONS = "tblAQaxG82bN14ppM";
 const TABLE_COACHING_REPORTS = "tblxfhYiBFcG5McId";
 const TABLE_PROSPECTS = "tblMpttghkw3QrZ0E";
 
+// Strips any leading bullet-like marker ("•", "-", "*", "1.", "2)") — handles both the old
+// "•"-prefixed format and the current "-"-prefixed format this data may have been stored
+// with, plus repeats in case a record ended up with more than one layer stacked together.
+function stripBulletPrefix(text) {
+  let s = String(text || "").trim();
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/^\s*(?:[•\-*]|\d+[.)])\s*/, "").trim();
+  } while (s !== prev);
+  return s;
+}
+
 function checkAdminSecret(req) {
   const provided = req.headers["x-admin-secret"];
   return provided && process.env.ADMIN_SECRET && provided === process.env.ADMIN_SECRET;
@@ -144,8 +157,8 @@ export default async function handler(req, res) {
           mistake: r.fields["One Biggest Mistake"] || "",
           improvement: r.fields["One Highest-Impact Improvement"] || "",
           categoryEvidence: r.fields["Category Evidence"] || "",
-          allMistakes: (r.fields["All Mistakes"] || "").split("\n").map((s) => s.replace(/^•\s*/, "")).filter(Boolean),
-          thingsDoneWell: (r.fields["Things Done Well"] || "").split("\n").map((s) => s.replace(/^•\s*/, "")).filter(Boolean),
+          allMistakes: (r.fields["All Mistakes"] || "").split("\n").map((s) => stripBulletPrefix(s)).filter(Boolean),
+          thingsDoneWell: (r.fields["Things Done Well"] || "").split("\n").map((s) => stripBulletPrefix(s)).filter(Boolean),
         };
       });
       sessions.forEach((s) => {
