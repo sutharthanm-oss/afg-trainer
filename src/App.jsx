@@ -791,7 +791,8 @@ If the agent used an effective technique that is NOT part of the approved object
 Conversation starter already used to open (do not repeat it): "${starterText(starter, lang)}"
 
 RULE: The appointment is always a 45-minute meeting. Never propose, agree to, or mention any other duration (not 15, not 20, not 30 minutes) at any point in the conversation — this applies from your very first mention of time commitment through to the final close.
-${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, the 45-minute duration, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask another open question." : ""}
+RULE: Whenever you propose meeting logistics (day, time, or location) at any point in the conversation, always state a specific location yourself — never turn the location into an open question back to the prospect (avoid phrasing like "you tell me which area" or "where's convenient for you"). Naming a concrete, generic type of place ("a cafe near your office", "a quick Zoom call") is always better than deferring the decision to them.
+${closeNow ? "\nThis is your final turn. You must close now: propose a specific day and time, the 45-minute duration, and a general location or platform (e.g. \"a cafe near your office\" or \"a quick Zoom call\"), using a confident two-choice close. Do not ask any open question of any kind on this turn." : ""}
 ${ov.finalConfirm ? "\nIMPORTANT — THIS IS THE VERY LAST LINE OF THE CALL: The prospect just confirmed the appointment. Give one brief, warm closing line acknowledging it — you may restate the day/time/location and thank them, similar to \"Perfect, see you then!\". Do not ask any question, do not add any new information, do not negotiate further. This is the goodbye line." : ""}
 
 Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says next>"}`;
@@ -826,22 +827,40 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
   }
 
   function buildPerfectDemoAssessment(closingLine) {
+    // Pull actual lines from the conversation that just happened, instead of generic
+    // canned text — the whole point of quoting evidence is showing the real words used,
+    // and a scripted demo shouldn't be exempt from that standard either.
+    const agentLines = messagesRef.current.filter((m) => m.role === "user").map((m) => m.text).filter(Boolean);
+    const openingLine = agentLines[0] || "";
+    const secondLine = agentLines[1] || openingLine;
+    const midLine = agentLines[Math.floor(agentLines.length / 2)] || secondLine;
+    const thirdLine = agentLines[2] || midLine;
+    const finalCloseLine = closingLine || agentLines[agentLines.length - 1] || "";
+    const quote = (t) => (t ? `"${t}"` : "(no line captured for this turn)");
+
     return {
-      communication: 25, communication_evidence: "Clear, confident, natural delivery throughout — no filler, no hesitation, every line purposeful.",
-      objection_handling: 25, objection_handling_evidence: "Every objection acknowledged, reframed, and redirected smoothly without dismissing the prospect's concern.",
-      appointment_closing: 20, appointment_closing_evidence: "Closed with a confident two-choice close and a specific date, time, and location.",
-      listening: 10, listening_evidence: "Responses directly addressed what the prospect actually said, not a generic script.",
-      questioning: 10, questioning_evidence: "Used targeted questions to surface the prospect's real concern before addressing it.",
-      confidence_tone: 5, confidence_tone_evidence: "Warm, assured tone throughout, never pushy.",
-      script_intent: 5, script_intent_evidence: "Stayed fully aligned with the starter's intent from open to close.",
+      communication: 25, communication_evidence: `${quote(openingLine)} — clear, confident, benefit-first framing right from the opening line.`,
+      communication_improvement: "Keep leading with a clear, specific benefit statement like this one in every opening.",
+      objection_handling: 25, objection_handling_evidence: `${quote(secondLine)} — acknowledged the prospect's concern and reframed it smoothly instead of dismissing it.`,
+      objection_handling_improvement: "Continue naming the specific concern before redirecting, exactly as done here.",
+      appointment_closing: 20, appointment_closing_evidence: `${quote(finalCloseLine)} — closed with a confident close and a specific date, time, and location.`,
+      appointment_closing_improvement: "Keep using a confident close with concrete specifics, as shown here.",
+      listening: 10, listening_evidence: `${quote(midLine)} — responded directly to what the prospect actually said, not a generic script.`,
+      listening_improvement: "Continue reflecting the prospect's own words back before redirecting.",
+      questioning: 10, questioning_evidence: `${quote(thirdLine)} — used a targeted question to surface the prospect's real concern.`,
+      questioning_improvement: "Keep asking specific, open questions like this one before proposing a solution.",
+      confidence_tone: 5, confidence_tone_evidence: `${quote(openingLine)} — warm, assured tone throughout, never pushy.`,
+      confidence_tone_improvement: "Maintain this same warm, unhurried tone in every session.",
+      script_intent: 5, script_intent_evidence: `${quote(openingLine)} — stayed fully aligned with the starter's intent from open to close.`,
+      script_intent_improvement: "Continue anchoring every response back to the starter's core question.",
       overall: 100, pass_status: "Pass", appointment_outcome: "Secured", compliance_result: "Pass", compliance_issue: "",
       ai_confidence: 100,
       one_biggest_mistake: "None — this is a scripted, gold-standard example run, not a graded live session.",
       highest_impact_improvement: "Nothing to improve — this demonstrates the ceiling of what a fully executed session looks like.",
-      strongest_sentence: closingLine || "",
-      strongest_question: "",
+      strongest_sentence: finalCloseLine,
+      strongest_question: thirdLine,
       better_response: "", better_close: "",
-      full_report: "MASTER INVITER MODE — this session was auto-generated end-to-end as a scripted product demonstration and was never independently assessed by the strict grading model. It always shows a perfect 100/100 by design and must never be treated as, or compared against, a real agent's genuine performance.",
+      full_report: "MASTER INVITER MODE — this session was auto-generated end-to-end as a scripted product demonstration and was never independently assessed by the strict grading model. The quotes above are real lines from this actual generated conversation, but the scores themselves are fixed at 100 by design and must never be treated as, or compared against, a real agent's genuine performance.",
       flagged_technique: "", flagged_technique_reason: "",
       all_mistakes: [],
       things_done_well: ["Opened exactly on script", "Handled every objection without conceding ground", "Closed with a specific date, time, and location", "Never once broke character or lost the thread of the conversation"],
