@@ -1708,7 +1708,7 @@ Respond with ONLY valid JSON, no other text: {"reply": "<what the agent says nex
       <div className="min-h-screen bg-white text-slate-900 flex flex-col">
         <div className="px-6 pt-8 pb-6 border-b border-slate-100">
           <div className="h-10 mb-5" />
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">CallSpar <span className="text-teal-700">- Appointment Sparring</span></h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">CallSpar <span className="text-teal-700">- Appointment Sparring</span></h1>
           <p className="text-slate-500 text-sm mt-1.5">Set up your session, then start the call.</p>
 
           <button onClick={() => setShowGuide((v) => !v)} className="mt-3 text-xs text-teal-700 font-medium underline">
